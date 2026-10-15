@@ -180,3 +180,34 @@ def monitor_status(session: Session, *, day_start: datetime, recent: int = 15) -
         or 0,
     }
     return {"now": now.isoformat(), "totals": totals, "runs": [_run_dict(r, now) for r in runs]}
+
+
+def hero_image(session: Session) -> str | None:
+    """Баннер игры с лучшей оценкой — фон шапки списка."""
+    return session.scalar(
+        select(Game.banner_url)
+        .where(Game.banner_url.is_not(None), Game.metascore.is_not(None))
+        .order_by(Game.metascore.desc(), Game.userscore.desc().nulls_last())
+        .limit(1)
+    )
+
+
+def page_window(page: int, pages: int, radius: int = 1) -> list[int | None]:
+    """Номера страниц для пагинации: первая, последняя и соседи текущей; None — многоточие."""
+    keep = {1, pages, *range(page - radius, page + radius + 1)}
+    out: list[int | None] = []
+    for n in range(1, pages + 1):
+        if n in keep:
+            out.append(n)
+        elif out and out[-1] is not None:
+            out.append(None)
+    return out
+
+
+def plural(n: int, one: str, few: str, many: str) -> str:
+    """Русское склонение: 1 игра, 2 игры, 5 игр, 21 игра."""
+    if n % 10 == 1 and n % 100 != 11:
+        return one
+    if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14:
+        return few
+    return many

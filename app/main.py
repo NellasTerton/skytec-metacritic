@@ -25,6 +25,9 @@ log = logging.getLogger(__name__)
 app = FastAPI(title="Metacritic Games", docs_url="/api/docs", openapi_url="/api/openapi.json")
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 templates.env.filters["short_platform"] = short_platform
+templates.env.filters["plural"] = queries.plural
+templates.env.globals["page_window"] = queries.page_window
+templates.env.globals["page_size"] = queries.PAGE_SIZE
 templates.env.filters["initials"] = lambda title: "".join(w[0] for w in (title or "?").split()[:2]).upper()
 
 
@@ -101,6 +104,8 @@ def index(
                 session, q=q, platform=platform, sort=sort, scored_only=scored_only, page=page
             )
             context["platforms"] = queries.platform_options(session, scored_only=scored_only)
+            if not partial:
+                context["hero_image"] = queries.hero_image(session)
     except DatabaseNotConfigured:
         return templates.TemplateResponse(request, "index.html", {**context, "configured": False})
     # partial=1 — только блок результатов, для поиска при вводе без перезагрузки страницы.

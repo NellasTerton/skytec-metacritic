@@ -1,5 +1,5 @@
 {% from "_macros.html" import scores, cover %}
-<p class="muted found">Найдено: {{ result.total }}</p>
+<p class="found">{{ result.total }} {{ result.total | plural('игра', 'игры', 'игр') }}{% if scored_only %} с оценками{% endif %}</p>
 {% if result.games %}
 <div class="grid">
   {% for game in result.games %}
@@ -11,9 +11,9 @@
     <div class="game-body">
       <h3 title="{{ game.title }}">{{ game.title }}</h3>
       {{ scores(p.metascore if p else game.metascore, p.userscore if p else game.userscore) }}
-      <div class="meta muted">
-        {{- game.release_date.strftime('%d.%m.%Y') if game.release_date else 'дата неизвестна' -}}
-        {%- if game.developers %} · {{ game.developers[0] }}{% endif -%}
+      <div class="meta">
+        <span><svg class="icon"><use href="#i-calendar"/></svg>{{ game.release_date.strftime('%d.%m.%Y') if game.release_date else 'дата неизвестна' }}</span>
+        {% if game.developers %}<span><svg class="icon"><use href="#i-studio"/></svg>{{ game.developers[0] }}</span>{% endif %}
       </div>
       <div class="plats">
         {%- for pl in plats[:4] -%}
@@ -25,13 +25,21 @@
   </a>
   {% endfor %}
 </div>
-{% if result.pages > 1 %}
 <div class="pager">
-  {% if result.page > 1 %}<a class="btn" href="{{ page_url(result.page - 1) }}">← Назад</a>{% endif %}
-  <span class="muted">{{ result.page }} / {{ result.pages }}</span>
-  {% if result.page < result.pages %}<a class="btn" href="{{ page_url(result.page + 1) }}">Вперёд →</a>{% endif %}
+  {% if result.pages > 1 %}
+  <nav class="pages" aria-label="Страницы">
+    {% if result.page > 1 %}<a href="{{ page_url(result.page - 1) }}" aria-label="Назад">‹</a>{% endif %}
+    {% for n in page_window(result.page, result.pages) %}
+      {% if n is none %}<span class="gap">…</span>
+      {% elif n == result.page %}<span class="current" aria-current="page">{{ n }}</span>
+      {% else %}<a href="{{ page_url(n) }}">{{ n }}</a>{% endif %}
+    {% endfor %}
+    {% if result.page < result.pages %}<a href="{{ page_url(result.page + 1) }}" aria-label="Вперёд">›</a>{% endif %}
+  </nav>
+  {% endif %}
+  {% set first = (result.page - 1) * page_size + 1 %}
+  <span class="showing">Показано {{ first }}–{{ first + result.games | length - 1 }} из {{ result.total }}</span>
 </div>
-{% endif %}
 {% else %}
   <div class="card muted">Ничего не найдено.{% if scored_only %} Возможно, игра есть среди игр без оценок — снимите галочку «Только с оценками».{% endif %}</div>
 {% endif %}

@@ -2,48 +2,101 @@
 {% block title %}Игры{% endblock %}
 {% block head %}
 <style>
-  .filters { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center; margin-bottom: 10px; }
-  .filters input[type=search] { width: 100%; }
-  .toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; color: var(--muted); cursor: pointer; user-select: none; }
+  main.wrap { padding-top: 0; }
+  .hero { position: relative; margin: 0 -16px 18px; padding: 34px 16px 22px; overflow: hidden; border-bottom: 1px solid var(--line); }
+  .hero-bg { position: absolute; inset: 0; background-size: cover; background-position: center 30%;
+    filter: blur(3px) saturate(1.1); transform: scale(1.05); opacity: .55; }
+  .hero::after { content: ""; position: absolute; inset: 0;
+    background: linear-gradient(90deg, var(--bg) 0%, color-mix(in srgb, var(--bg) 70%, transparent) 55%, color-mix(in srgb, var(--bg) 35%, transparent) 100%),
+                linear-gradient(0deg, var(--bg) 0%, transparent 60%); }
+  .hero > *:not(.hero-bg) { position: relative; z-index: 1; }
+  .hero h1 { margin: 0 0 6px; font-size: clamp(26px, 5vw, 42px); line-height: 1.1; font-weight: 800; letter-spacing: -.5px; }
+  .hero h1 .accent { background: linear-gradient(90deg, #5aa0ff, #7ee0ff); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .hero p { margin: 0 0 18px; color: var(--muted); }
+
+  .filters { display: grid; grid-template-columns: 1fr minmax(170px, 230px) minmax(160px, 210px); gap: 10px; }
+  .field { position: relative; display: flex; align-items: center; }
+  .field > .icon { position: absolute; left: 13px; z-index: 1; color: var(--muted); pointer-events: none; }
+  .field > .chevron { left: auto; right: 12px; width: 16px; height: 16px; }
+  .field input, .field select { width: 100%; height: 46px; padding-left: 40px; background: color-mix(in srgb, var(--card) 85%, transparent);
+    backdrop-filter: blur(6px); }
+  .field select { appearance: none; -webkit-appearance: none; padding-right: 34px; cursor: pointer; text-overflow: ellipsis; }
+  .options { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 12px; }
+  .toggle { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted); cursor: pointer; user-select: none; }
   .toggle input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
-  .found { margin: 6px 0 10px; font-size: 14px; }
+
+  .found { margin: 0 0 12px; font-size: 17px; font-weight: 700; }
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
-  .game { display: flex; gap: 12px; padding: 10px; color: inherit; height: 142px; transition: border-color .15s; }
-  .game:hover { text-decoration: none; border-color: var(--accent); }
-  .game .cover { width: 90px; height: 120px; }
+  .game { display: flex; gap: 12px; padding: 10px; color: inherit; height: 152px; transition: border-color .15s, transform .15s;
+    box-shadow: var(--shadow); }
+  .game:hover { text-decoration: none; border-color: var(--accent); transform: translateY(-1px); }
+  .game .cover { width: 99px; height: 132px; }
   .game-body { display: flex; flex-direction: column; justify-content: space-between; min-width: 0; flex: 1; }
   .game h3 { margin: 0; font-size: 15px; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2;
     -webkit-box-orient: vertical; overflow: hidden; }
-  .game .meta { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .game .meta { display: grid; gap: 1px; font-size: 12px; color: var(--muted); }
+  .game .meta span { display: flex; align-items: center; gap: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .game .meta .icon { width: 13px; height: 13px; }
   .game .plats { display: flex; gap: 4px; flex-wrap: nowrap; overflow: hidden; }
-  .pager { display: flex; gap: 8px; align-items: center; justify-content: center; margin-top: 18px; }
+
+  .pager { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 20px; flex-wrap: wrap; }
+  .pages { display: flex; gap: 6px; margin: 0 auto; }
+  .pages a, .pages span { min-width: 36px; height: 36px; padding: 0 8px; border-radius: 9px; display: inline-grid;
+    place-items: center; border: 1px solid var(--line); background: var(--card); color: var(--fg); font-weight: 700; font-size: 14px; }
+  .pages a:hover { text-decoration: none; border-color: var(--accent); }
+  .pages .current { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .pages .gap { border: 0; background: none; color: var(--muted); min-width: 16px; }
+  .showing { font-size: 13px; color: var(--muted); }
   #results.loading { opacity: .5; transition: opacity .1s; }
-  @media (max-width: 560px) {
+  @media (max-width: 640px) {
+    .hero { padding-top: 24px; }
     .filters { grid-template-columns: 1fr 1fr; }
-    .filters input[type=search] { grid-column: 1 / -1; }
+    .filters .search { grid-column: 1 / -1; }
     .grid { grid-template-columns: 1fr; }
+    .pager { justify-content: center; }
+    .showing { width: 100%; text-align: center; order: 2; }
   }
 </style>
 {% endblock %}
 {% block content %}
+<section class="hero">
+  {% if hero_image %}<div class="hero-bg" style="background-image: url('{{ hero_image }}')"></div>{% endif %}
+  <h1>Найдите <span class="accent">отличную игру</span></h1>
+  <p>Новинки с Metacritic: оценки критиков и игроков по платформам и короткие выжимки отзывов.</p>
+  {% if configured %}
+  <form id="filters" class="filters" method="get" action="/" role="search">
+    <label class="field search">
+      <svg class="icon"><use href="#i-search"/></svg>
+      <input type="search" name="q" value="{{ q }}" placeholder="Поиск по названию игры" autocomplete="off" enterkeyhint="search" aria-label="Поиск по названию">
+    </label>
+    <label class="field">
+      <svg class="icon"><use href="#i-platform"/></svg>
+      <select name="platform" aria-label="Платформа">
+        <option value="">Все платформы</option>
+        {% for slug, name, count in platforms %}
+          <option value="{{ slug }}" {{ 'selected' if slug == platform }}>{{ name }} ({{ count }})</option>
+        {% endfor %}
+      </select>
+      <svg class="icon chevron"><use href="#i-chevron"/></svg>
+    </label>
+    <label class="field">
+      <svg class="icon"><use href="#i-sort"/></svg>
+      <select name="sort" aria-label="Сортировка">
+        {% for key, label in sorts.items() %}
+          <option value="{{ key }}" {{ 'selected' if key == sort }}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      <svg class="icon chevron"><use href="#i-chevron"/></svg>
+    </label>
+  </form>
+  <div class="options">
+    <label class="toggle"><input type="checkbox" form="filters" name="scored" {{ 'checked' if scored_only }}> Только с оценками</label>
+  </div>
+  {% endif %}
+</section>
 {% if not configured %}
   <div class="card">База данных не подключена: задайте <code>DATABASE_URL</code>.</div>
 {% else %}
-<form id="filters" class="filters" method="get" action="/" role="search">
-  <input type="search" name="q" value="{{ q }}" placeholder="Поиск по названию" autocomplete="off" enterkeyhint="search">
-  <select name="platform" aria-label="Платформа">
-    <option value="">Все платформы</option>
-    {% for slug, name, count in platforms %}
-      <option value="{{ slug }}" {{ 'selected' if slug == platform }}>{{ name }} ({{ count }})</option>
-    {% endfor %}
-  </select>
-  <select name="sort" aria-label="Сортировка">
-    {% for key, label in sorts.items() %}
-      <option value="{{ key }}" {{ 'selected' if key == sort }}>{{ label }}</option>
-    {% endfor %}
-  </select>
-  <label class="toggle"><input type="checkbox" name="scored" {{ 'checked' if scored_only }}> Только с оценками</label>
-</form>
 <div id="results">{% include "_results.html" %}</div>
 {% endif %}
 {% endblock %}
@@ -53,24 +106,24 @@
   const form = document.getElementById('filters');
   const results = document.getElementById('results');
   if (!form) return;
+  const scored = document.querySelector('input[name=scored]');
   let timer, controller;
 
   function query() {
     const p = new URLSearchParams();
     for (const [k, v] of new FormData(form)) if (v && k !== 'scored') p.set(k, v);
-    if (!form.scored.checked) p.set('all', '1');
+    if (!scored.checked) p.set('all', '1');
     return p;
   }
 
-  async function refresh() {
+  async function load(p) {
     controller?.abort();
     controller = new AbortController();
-    const p = query();
     const pageUrl = p.toString() ? '/?' + p : '/';
-    p.set('partial', '1');
+    const partial = new URLSearchParams(p); partial.set('partial', '1');
     results.classList.add('loading');
     try {
-      const response = await fetch('/?' + p, { signal: controller.signal });
+      const response = await fetch('/?' + partial, { signal: controller.signal });
       results.innerHTML = await response.text();
       history.replaceState(null, '', pageUrl);
     } catch (e) {
@@ -80,9 +133,18 @@
     }
   }
 
+  const refresh = () => load(query());
   form.q.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(refresh, 250); });
   form.addEventListener('change', (e) => { if (e.target.name !== 'q') refresh(); });
+  scored.addEventListener('change', refresh);
   form.addEventListener('submit', (e) => { e.preventDefault(); clearTimeout(timer); refresh(); });
+  // Пагинация без перезагрузки страницы.
+  results.addEventListener('click', (e) => {
+    const a = e.target.closest('.pages a');
+    if (!a) return;
+    e.preventDefault();
+    load(new URL(a.href).searchParams).then(() => results.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  });
 })();
 </script>
 {% endblock %}
