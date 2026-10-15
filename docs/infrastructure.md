@@ -69,10 +69,26 @@ Vercel (FastAPI + Jinja2/HTMX)
 с секретом, а работа режется на порции ≤250 с с очередью в БД. Хуже: дробление, лимит
 300 с, и каждая порция будит Neon.
 
-## Что не проверено
+## Проверка доступа из облака (зонд `probe/`)
 
-1. **Пускает ли Metacritic с IP облаков** (Vercel = AWS `iad1`, GitHub Actions = Azure).
-   С домашнего IP всё работает. Нужен зонд с каждого из двух мест.
-2. YouTube с IP GitHub Actions: yt-dlp и youtube-transcript-api с облачных IP часто
-   получают «Sign in to confirm you're not a bot». Это риск для доп. части 1.
+**GitHub Actions — проверено 2026-10-15**
+([run 38715625939](https://github.com/NellasTerton/skytec-metacritic/actions/runs/38715625939)).
+Egress: `172.178.119.36`, AS8075 Microsoft, Dulles (US).
+- Все страницы `www` и все эндпоинты backend отдают 200, Cloudflare-челленджей нет,
+  задержка 200–570 мс.
+- 20 параллельных composer-запросов → 20 × 200 за 0,7 с.
+- User-Agent ведёт себя так же, как с домашнего IP: `Python-urllib` → 403 (челлендж),
+  `python-requests` на `www` → 403, `httpx` и браузерный UA → 200.
+- YouTube: страница поиска отдаётся без «bot wall», `yt-dlp --simulate` получил метаданные
+  ролика. Для доп. части 1 это хороший знак, но скачивание аудио ещё не проверено.
+
+**Vercel — не проверено.** Токен Vercel-коннектора получает 403 на создание проекта и
+деплоя. Зонд готов как FastAPI-приложение (`probe/app.py`); деплой из папки `probe`:
+`npx vercel deploy --prod`, затем открыть `/md`.
+
+## Что ещё не проверено
+
+1. Metacritic с IP Vercel (AWS `iad1`). Для схемы с воркером в Actions это некритично:
+   сайт на Vercel читает только Neon и в Metacritic не ходит.
+2. Скачивание аудио с YouTube с IP Actions (yt-dlp `-x`) и расшифровка.
 3. Точные лимиты Gemini free и требование карты при регистрации.
