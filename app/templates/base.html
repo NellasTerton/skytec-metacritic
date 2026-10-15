@@ -3,19 +3,58 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}Metacritic Games{% endblock %}</title>
+  <title>{% block title %}Игры{% endblock %} · Metacritic Games</title>
   <style>
-    :root { color-scheme: light dark; --fg: #1a1a1a; --bg: #fafafa; --muted: #666; --card: #fff; --line: #e3e3e3; }
-    @media (prefers-color-scheme: dark) {
-      :root { --fg: #eee; --bg: #141414; --muted: #999; --card: #1d1d1d; --line: #2c2c2c; }
+    :root {
+      color-scheme: light dark;
+      --fg: #1a1a1a; --bg: #f6f6f4; --muted: #6b6b6b; --card: #fff; --line: #e2e2de; --accent: #2f5bd3;
+      --good: #1f8f3a; --mixed: #c99400; --bad: #d23c2c; --none: #9a9a9a;
     }
-    body { margin: 0; font: 15px/1.5 system-ui, sans-serif; color: var(--fg); background: var(--bg); }
-    main { max-width: 1100px; margin: 0 auto; padding: 24px 16px; }
-    .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 16px; }
+    @media (prefers-color-scheme: dark) {
+      :root { --fg: #ececec; --bg: #121212; --muted: #9a9a9a; --card: #1c1c1c; --line: #2d2d2d; --accent: #7fa2ff; }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--fg); background: var(--bg); }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    header { border-bottom: 1px solid var(--line); background: var(--card); }
+    header .wrap { display: flex; gap: 20px; align-items: center; padding-top: 12px; padding-bottom: 12px; }
+    header .brand { font-weight: 700; color: var(--fg); }
+    header nav a { color: var(--muted); margin-right: 14px; }
+    header nav a.active { color: var(--fg); font-weight: 600; }
+    .wrap { max-width: 1160px; margin: 0 auto; padding: 0 16px; }
+    main { padding-top: 20px; padding-bottom: 48px; }
     .muted { color: var(--muted); }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+    .score { display: inline-flex; align-items: center; justify-content: center; min-width: 36px; height: 30px;
+      padding: 0 6px; border-radius: 6px; font-weight: 700; color: #fff; background: var(--none); font-size: 14px; }
+    .score.good { background: var(--good); } .score.mixed { background: var(--mixed); } .score.bad { background: var(--bad); }
+    .score.user { border-radius: 50%; min-width: 30px; width: 30px; font-size: 12px; }
+    .tag { display: inline-block; padding: 1px 8px; border: 1px solid var(--line); border-radius: 999px;
+      font-size: 12px; color: var(--muted); margin: 0 4px 4px 0; white-space: nowrap; }
+    button, .btn { font: inherit; padding: 7px 14px; border-radius: 8px; border: 1px solid var(--line);
+      background: var(--card); color: var(--fg); cursor: pointer; }
+    button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    button:disabled { opacity: .6; cursor: default; }
+    input, select { font: inherit; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--line);
+      background: var(--card); color: var(--fg); }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { font-weight: 600; color: var(--muted); font-size: 13px; }
+    .table-scroll { overflow-x: auto; }
   </style>
+  {% block head %}{% endblock %}
 </head>
 <body>
-  <main>{% block content %}{% endblock %}</main>
+  <header>
+    <div class="wrap">
+      <a class="brand" href="/">Metacritic Games</a>
+      <nav>
+        <a href="/" class="{{ 'active' if nav == 'games' }}">Игры</a>
+        <a href="/monitor" class="{{ 'active' if nav == 'monitor' }}">Мониторинг</a>
+      </nav>
+    </div>
+  </header>
+  <main class="wrap">{% block content %}{% endblock %}</main>
 </body>
 </html>

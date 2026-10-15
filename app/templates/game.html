@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% from "_macros.html" import metascore, userscore %}
+{% block title %}{{ game.title }}{% endblock %}
+{% block head %}
+<style>
+  .hero { display: grid; grid-template-columns: 200px 1fr; gap: 20px; }
+  .hero img.cover { width: 200px; border-radius: 10px; background: var(--line); }
+  .hero h1 { margin: 0 0 8px; font-size: 28px; line-height: 1.2; }
+  .lead-scores { display: flex; gap: 16px; align-items: center; margin: 10px 0; }
+  .lead-scores .score { height: 44px; min-width: 48px; font-size: 20px; }
+  .lead-scores .score.user { width: 44px; min-width: 44px; font-size: 15px; }
+  .section { margin-top: 20px; }
+  .section h2 { font-size: 18px; margin: 0 0 10px; }
+  .summaries { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .summaries h3 { margin: 0 0 6px; font-size: 15px; }
+  .summaries ul { margin: 6px 0 0; padding-left: 18px; }
+  .pros li::marker { content: "+  "; color: var(--good); font-weight: 700; }
+  .cons li::marker { content: "−  "; color: var(--bad); font-weight: 700; }
+  .video { position: relative; aspect-ratio: 16 / 9; border-radius: 10px; overflow: hidden; background: #000; max-width: 720px; }
+  .video iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+  .similar { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; }
+  .similar a { display: block; color: inherit; }
+  .similar img { width: 100%; aspect-ratio: 3 / 4; object-fit: cover; border-radius: 8px; background: var(--line); }
+  .similar .name { font-weight: 600; margin-top: 6px; line-height: 1.3; }
+  @media (max-width: 720px) {
+    .hero { grid-template-columns: 1fr; } .hero img.cover { width: 160px; }
+    .summaries { grid-template-columns: 1fr; }
+  }
+</style>
+{% endblock %}
+{% block content %}
+<p><a href="/">← Все игры</a></p>
+<div class="hero">
+  <div>{% if game.cover_url %}<img class="cover" src="{{ game.cover_url }}" alt="{{ game.title }}">{% endif %}</div>
+  <div>
+    <h1>{{ game.title }}</h1>
+    <div class="lead-scores">
+      {{ metascore(game.metascore) }}
+      <span class="muted">Metascore{% if game.critic_review_count %}<br>{{ game.critic_review_count }} рецензий{% endif %}</span>
+      {{ userscore(game.userscore) }}
+      <span class="muted">User score{% if game.user_review_count %}<br>{{ game.user_review_count }} оценок{% endif %}</span>
+    </div>
+    <p>
+      {% if game.developers %}<strong>Разработчик:</strong> {{ game.developers | join(', ') }}<br>{% endif %}
+      {% if game.publishers %}<strong>Издатель:</strong> {{ game.publishers | join(', ') }}<br>{% endif %}
+      {% if game.release_date %}<strong>Дата выхода:</strong> {{ game.release_date.strftime('%d.%m.%Y') }}<br>{% endif %}
+      {% if game.rating %}<strong>Рейтинг ESRB:</strong> {{ game.rating }}<br>{% endif %}
+    </p>
+    <div>{% for g in game.genres %}<span class="tag">{{ g }}</span>{% endfor %}</div>
+    {% if game.description %}<p>{{ game.description }}</p>{% endif %}
+    <p class="muted">
+      <a href="https://www.metacritic.com/game/{{ game.slug }}/" target="_blank" rel="noopener">Страница на Metacritic ↗</a>
+      {% if game.last_processed_at %} · обновлено {{ game.last_processed_at.strftime('%d.%m.%Y %H:%M') }} UTC{% endif %}
+    </p>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Платформы</h2>
+  <div class="card table-scroll">
+    <table>
+      <tr><th>Платформа</th><th>Metascore</th><th>Рецензий</th><th>User score</th><th>Оценок</th><th>Дата выхода</th></tr>
+      {% for p in game.platforms %}
+      <tr>
+        <td>{{ p.name }}{% if p.is_lead %} <span class="tag">основная</span>{% endif %}</td>
+        <td>{{ metascore(p.metascore) }}</td><td class="muted">{{ p.critic_review_count or 0 }}</td>
+        <td>{{ userscore(p.userscore) }}</td><td class="muted">{{ p.user_review_count or 0 }}</td>
+        <td class="muted">{{ p.release_date.strftime('%d.%m.%Y') if p.release_date else '—' }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Что говорят об игре</h2>
+  <div class="summaries">
+    {% for kind, title in [('critic', 'Критики'), ('user', 'Игроки')] %}
+    {% set s = summaries.get(kind) %}
+    <div class="card">
+      <h3>{{ title }}</h3>
+      {% if s and s.summary %}
+        <p>{{ s.summary }}</p>
+        {% if s.pros %}<ul class="pros">{% for x in s.pros %}<li>{{ x }}</li>{% endfor %}</ul>{% endif %}
+        {% if s.cons %}<ul class="cons">{% for x in s.cons %}<li>{{ x }}</li>{% endfor %}</ul>{% endif %}
+        <p class="muted" style="font-size:12px;margin-bottom:0">По {{ s.review_count }} отзывам · {{ s.model }} · {{ s.updated_at.strftime('%d.%m.%Y') }}</p>
+      {% else %}
+        <p class="muted">Резюме пока нет: отзывов слишком мало или они ещё не обработаны.</p>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+{% if game.video_url %}
+<div class="section">
+  <h2>Видео</h2>
+  <div class="video"><iframe src="{{ game.video_url }}" title="{{ game.video_title or game.title }}" allowfullscreen loading="lazy"></iframe></div>
+  <p class="muted">{{ game.video_title }} · <a href="{{ game.video_url }}" target="_blank" rel="noopener">открыть отдельно ↗</a></p>
+</div>
+{% endif %}
+
+<div class="section">
+  <h2>Похожие игры</h2>
+  {% if similar %}
+  <div class="similar">
+    {% for other, reasons in similar %}
+    <a class="card" href="/game/{{ other.slug }}">
+      {% if other.cover_url %}<img src="{{ other.cover_url }}" alt="" loading="lazy">{% endif %}
+      <div class="name">{{ other.title }}</div>
+      <div style="margin:4px 0">{{ metascore(other.metascore) }}</div>
+      <div class="muted" style="font-size:12px">{{ reasons | join(', ') }}</div>
+    </a>
+    {% endfor %}
+  </div>
+  {% else %}
+    <p class="muted">В базе пока нет игр с теми же жанрами или разработчиком.</p>
+  {% endif %}
+</div>
+{% endblock %}

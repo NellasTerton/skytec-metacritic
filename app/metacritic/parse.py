@@ -50,8 +50,11 @@ def parse_score_stats(item: dict | None) -> ScoreStats | None:
         return None
     count = item.get("reviewCount") or 0
     score = item.get("score")
+    # Пока отзывов мало, Metacritic оценку не публикует («tbd»): API отдаёт score 0 или null
+    # и sentiment null. Ноль при этом — не настоящая оценка.
+    published = score is not None and count > 0 and item.get("sentiment") is not None
     return ScoreStats(
-        score=float(score) if score is not None and count > 0 else None,
+        score=float(score) if published else None,
         max=item.get("max") or 100,
         review_count=count,
         positive=item.get("positiveCount") or 0,

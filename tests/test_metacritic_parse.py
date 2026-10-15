@@ -74,6 +74,9 @@ def test_composer_not_found_status():
 def test_score_stats_normalization():
     stats = parse.parse_score_stats({"max": 10, "score": 0, "reviewCount": 0})
     assert stats.score is None
+    # 2 оценки: оценка ещё не опубликована, API отдаёт 0 и sentiment null.
+    stats = parse.parse_score_stats({"max": 10, "score": 0, "reviewCount": 2, "negativeCount": 2, "sentiment": None})
+    assert stats.score is None and stats.review_count == 2
     stats = parse.parse_stats_response(load("user_stats_elden-ring_pc"))
     assert stats.max == 10 and stats.score == pytest.approx(7.6) and stats.review_count > 1000
 

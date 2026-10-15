@@ -1,16 +1,17 @@
-"""Точка входа сайта. Vercel находит `app` в app/main.py автоматически."""
+"""Сайт. Vercel находит `app` в app/main.py автоматически."""
 
 import logging
 from pathlib import Path
+from urllib.parse import urlencode
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import func, select, text
+from sqlalchemy import text
 
+from app import queries
 from app.config import get_settings
 from app.db import DatabaseNotConfigured, session_scope
-from app.models import Game, Run
 
 logging.basicConfig(level=get_settings().log_level)
 log = logging.getLogger(__name__)
@@ -34,12 +35,32 @@ def health() -> JSONResponse:
 
 
 @app.get("/", response_class=HTMLResponse)
-def index(request: Request) -> HTMLResponse:
-    stats: dict = {"configured": True}
+def index(request: Request, q: str = "", platform: str = "", sort: str = "metascore", page: int = 1) -> HTMLResponse:
+    if sort not in queries.SORTS:
+        sort = "metascore"
+    context = {"nav": "games", "q": q, "platform": platform, "sort": sort, "sorts": queries.SORTS}
+
+    def page_url(n: int) -> str:
+        params = {k: v for k, v in {"q": q, "platform": platform, "sort": sort, "page": n}.items() if v}
+        return "/?" + urlencode(params)
+
     try:
         with session_scope() as session:
-            stats["games"] = session.scalar(select(func.count()).select_from(Game))
-            stats["last_run"] = session.scalars(select(Run).order_by(Run.started_at.desc()).limit(1)).first()
+            context["result"] = queries.list_games(session, q=q, platform=platform, sort=sort, page=page)
+            context["platforms"] = queries.platform_options(session)
     except DatabaseNotConfigured:
-        stats["configured"] = False
-    return templates.TemplateResponse(request, "index.html", {"stats": stats})
+        return templates.TemplateResponse(request, "index.html", {**context, "configured": False})
+    return templates.TemplateResponse(request, "index.html", {**context, "configured": True, "page_url": page_url})
+
+
+@app.get("/game/{slug}", response_class=HTMLResponse)
+def game_card(request: Request, slug: str) -> HTMLResponse:
+    with session_scope() as session:
+        game = queries.get_game(session, slug)
+        if game is None:
+            raise HTTPException(status_code=404, detail="Игра не найдена")
+        similar = queries.similar_games(session, game)
+        summaries = {s.kind: s for s in game.summaries}
+        return templates.TemplateResponse(
+            request, "game.html", {"nav": "games", "game": game, "similar": similar, "summaries": summaries}
+        )

@@ -1,5 +1,8 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "regions": [
+    "cle1"
+  ],
   "functions": {
     "app/main.py": {
       "maxDuration": 30,
