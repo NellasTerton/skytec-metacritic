@@ -8,6 +8,7 @@ from app.letsplay import (
     LetsplayError,
     QuotaExceeded,
     Video,
+    WrongVideo,
     analyze,
     find_letsplay,
     gemini_json,
@@ -219,3 +220,17 @@ async def test_gemini_json_skips_model_with_broken_json():
     transport = gemini_transport({"lite": broken, "flash": ok({"a": 1})}, seen)
     async with httpx.AsyncClient(transport=transport) as client:
         assert await gemini_json(client, "k", ["lite", "flash"], [{"text": "x"}]) == ({"a": 1}, "lite-x")
+
+
+def test_pick_letsplay_matches_whole_words():
+    videos = [v("w", "I Used WW1 Tactics to Survive Armageddon in Total Warhammer 3", 9_000_000, 40)]
+    assert pick_letsplay("Total War", videos) is None
+    videos.append(v("ok", "Total War: Shogun 2 - Let's Play Part 1", 1000, 60))
+    assert pick_letsplay("Total War", videos).id == "ok"
+
+
+async def test_analyze_rejects_video_about_another_game():
+    reply = ok({**GOOD, "matches_game": False})
+    async with httpx.AsyncClient(transport=gemini_transport({"lite": reply}, [])) as client:
+        with pytest.raises(WrongVideo):
+            await analyze(client, "k", ["lite"], "Total War: SHOGUN 2", v("abc", "t", 1, 40), None)

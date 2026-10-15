@@ -9,7 +9,7 @@ import httpx
 
 from app.config import get_settings
 from app.db import session_scope
-from app.letsplay import LetsplayError, QuotaExceeded, analyze, fetch_transcript, find_letsplay
+from app.letsplay import LetsplayError, QuotaExceeded, WrongVideo, analyze, fetch_transcript, find_letsplay
 from app.llm import LLMClient, LLMError, providers_from_settings
 from app.media import collect_media
 from app.metacritic import GameDetails, MetacriticClient
@@ -294,6 +294,13 @@ async def letsplay_backlog(limit: int, *, trigger: str = "backfill") -> int | No
                     continue
                 transcript = await fetch_transcript(http, video)
                 result = await analyze(http, settings.gemini_api_key, models, title, video, transcript)
+            except WrongVideo as e:
+                # Чужой ролик: лучше без летсплея, чем с неверным. Больше не ищем.
+                with session_scope(serverless=False) as session:
+                    store.save_letsplay(session, slug, "not_found", error=str(e)[:2000])
+                stats["not_found"] += 1
+                log.warning("run #%d: %s", run_id, e)
+                continue
             except QuotaExceeded as e:
                 stats["stopped"] = "YouTube Data API quota exceeded"
                 log.warning("run #%d: %s", run_id, e)

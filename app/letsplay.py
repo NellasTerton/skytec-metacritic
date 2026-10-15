@@ -36,6 +36,10 @@ class LetsplayError(RuntimeError):
     pass
 
 
+class WrongVideo(LetsplayError):
+    """Gemini посмотрел ролик и говорит, что он не про эту игру."""
+
+
 class QuotaExceeded(LetsplayError):
     """Суточная квота YouTube Data API кончилась — дальше в этом прогоне не ищем."""
 
@@ -85,7 +89,8 @@ def pick_letsplay(title: str, videos: list[Video]) -> Video | None:
     candidates = []
     for v in videos:
         name = normalize(v.title)
-        if wanted not in name or any(word in name for word in EXCLUDE_WORDS):
+        # По границам слов: «total war» не должно совпадать с «total warhammer 3».
+        if f" {wanted} " not in f" {name} " or any(word in name for word in EXCLUDE_WORDS):
             continue
         if not MIN_MINUTES * 60 <= v.duration_s <= MAX_MINUTES * 60:
             continue
@@ -186,7 +191,7 @@ async def fetch_transcript(client: httpx.AsyncClient, video: Video) -> str | Non
 RESULT_SCHEMA = (
     '{"retelling": "...", "verdict": "...", '
     '"quotes": [{"text": "дословно, на языке оригинала", "ru": "перевод на русский"}], '
-    '"pros": ["до 4 пунктов"], "cons": ["до 4 пунктов"], "liked": true}'
+    '"pros": ["до 4 пунктов"], "cons": ["до 4 пунктов"], "liked": true, "matches_game": true}'
 )
 
 # Lite-модели тянут в русский текст кальки и транслит: «инсайн», «г-плей», «челлендж».
@@ -206,7 +211,10 @@ def build_prompt(game_title: str, source: str) -> str:
         "2. Сделай заключение: понравилась ли игра блогеру и кому она подойдёт. Особенно учитывай его "
         "итоговые слова в конце.\n"
         "3. Приведи 2–3 короткие дословные цитаты блогера об игре на языке оригинала — только то, что он "
-        "действительно сказал, — и к каждой точный перевод на русский.\n"
+        "сам действительно сказал (не реплики персонажей, не закадровый текст и не надписи игры), — и к "
+        "каждой точный перевод на русский.\n"
+        f"4. matches_game: true, только если в ролике действительно играют в «{game_title}», а не в другую "
+        "игру той же серии или с похожим названием.\n"
         + STYLE_RULES
         + "Опирайся только на материал ролика, ничего не придумывай. Ответ — строго JSON:\n"
         + RESULT_SCHEMA
@@ -292,6 +300,8 @@ async def analyze(
         parts.append({"text": build_prompt(game_title, "фрагменты (начало, середина и конец)")})
         config = {"mediaResolution": "MEDIA_RESOLUTION_LOW"}
     data, model = await gemini_json(client, gemini_key, models, parts, **config)
+    if data.get("matches_game") is False:
+        raise WrongVideo(f"{video.id} is not a let's play of {game_title!r}")
     if not str(data.get("retelling", "")).strip() or not str(data.get("verdict", "")).strip():
         raise LetsplayError("Gemini returned an empty retelling or verdict")
     liked = data.get("liked")
