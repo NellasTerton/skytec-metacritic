@@ -32,9 +32,11 @@ class Settings(BaseSettings):
     # workflow_dispatch fine-grained токеном (только этот репозиторий, Actions: read & write).
     cron_secret: str | None = None
     github_dispatch_token: str | None = None
-    github_repository: str = "NellasTerton/skytec-metacritic"
-    github_workflow: str = "worker.yml"
-    github_ref: str = "main"
+    # Не github_*: pydantic читает поля из переменных окружения, а GITHUB_REPOSITORY,
+    # GITHUB_WORKFLOW и GITHUB_REF GitHub Actions выставляет в каждом job сам.
+    worker_repository: str = "NellasTerton/skytec-metacritic"
+    worker_workflow: str = "worker.yml"
+    worker_ref: str = "main"
     # Автоматический запуск пропускается, если такой уже был за последние N минут
     # (внешний cron и запасной cron GitHub не дают двух прогонов в час).
     auto_run_min_interval_minutes: int = 50

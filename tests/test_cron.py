@@ -72,3 +72,16 @@ async def test_dispatch_worker_error():
         await dispatch_worker(settings, "cron", transport=transport)
     with pytest.raises(DispatchError, match="not set"):
         await dispatch_worker(Settings(_env_file=None), "cron")
+
+
+def test_settings_ignore_github_actions_env(monkeypatch):
+    # В каждом job GitHub Actions сам выставляет GITHUB_WORKFLOW / GITHUB_REF / GITHUB_REPOSITORY.
+    monkeypatch.setenv("GITHUB_WORKFLOW", "ci")
+    monkeypatch.setenv("GITHUB_REF", "refs/heads/main")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "someone/else")
+    settings = Settings(_env_file=None)
+    assert (settings.worker_workflow, settings.worker_ref, settings.worker_repository) == (
+        "worker.yml",
+        "main",
+        "NellasTerton/skytec-metacritic",
+    )

@@ -26,7 +26,7 @@ def _headers(settings: Settings) -> dict[str, str]:
 
 
 def _workflow_url(settings: Settings) -> str:
-    return f"{API_URL}/repos/{settings.github_repository}/actions/workflows/{settings.github_workflow}"
+    return f"{API_URL}/repos/{settings.worker_repository}/actions/workflows/{settings.worker_workflow}"
 
 
 async def dispatch_worker(
@@ -34,7 +34,7 @@ async def dispatch_worker(
 ) -> None:
     if not settings.github_dispatch_token:
         raise DispatchError("GITHUB_DISPATCH_TOKEN is not set")
-    body = {"ref": settings.github_ref, "inputs": {"trigger": trigger}}
+    body = {"ref": settings.worker_ref, "inputs": {"trigger": trigger}}
     async with httpx.AsyncClient(timeout=20, transport=transport) as client:
         response = await client.post(f"{_workflow_url(settings)}/dispatches", json=body, headers=_headers(settings))
     if response.status_code != 204:
@@ -48,7 +48,7 @@ async def latest_worker_run(
     """Последний запуск workflow воркера в Actions. Кэшируется: страница мониторинга опрашивает часто."""
     if not settings.github_dispatch_token:
         return None
-    cached = _status_cache.get(settings.github_workflow)
+    cached = _status_cache.get(settings.worker_workflow)
     if use_cache and cached and time.monotonic() - cached[0] < STATUS_CACHE_SECONDS:
         return cached[1]
     try:
@@ -71,5 +71,5 @@ async def latest_worker_run(
             "url": run.get("html_url"),
             "active": run.get("status") in ACTIVE_STATUSES,
         }
-    _status_cache[settings.github_workflow] = (time.monotonic(), result)
+    _status_cache[settings.worker_workflow] = (time.monotonic(), result)
     return result
