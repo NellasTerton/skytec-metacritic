@@ -50,5 +50,7 @@ python -m scripts.capture_fixtures   # обновить фикстуры
 - **Neon:** создать проект, `DATABASE_URL` (pooled) и `DATABASE_URL_UNPOOLED` (direct).
 - **GitHub Actions:** те же две строки и `GROQ_API_KEY` в Settings → Secrets → Actions.
   Без ключа LLM воркер работает, но резюме отзывов не пишет.
-- **Vercel:** `DATABASE_URL` в переменных окружения проекта. В Deployment Protection
+- **Vercel:** `DATABASE_URL`, `CRON_SECRET` и `GITHUB_DISPATCH_TOKEN` в переменных окружения проекта. В Deployment Protection
   отключить Vercel Authentication, иначе сайт будет закрыт логином.
+- **Ежечасный запуск:** задача на cron-job.org раз в час делает `GET https://<сайт>/api/cron`
+  с заголовком `Authorization: Bearer <CRON_SECRET>` (подробно в docs/infrastructure.md).

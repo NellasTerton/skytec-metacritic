@@ -28,6 +28,17 @@ class Settings(BaseSettings):
     llm_model: str | None = None
     summaries_per_run: int = 20
 
+    # Запуск воркера с сайта: внешний cron дёргает /api/cron с CRON_SECRET, сайт вызывает
+    # workflow_dispatch fine-grained токеном (только этот репозиторий, Actions: read & write).
+    cron_secret: str | None = None
+    github_dispatch_token: str | None = None
+    github_repository: str = "NellasTerton/skytec-metacritic"
+    github_workflow: str = "worker.yml"
+    github_ref: str = "main"
+    # Автоматический запуск пропускается, если такой уже был за последние N минут
+    # (внешний cron и запасной cron GitHub не дают двух прогонов в час).
+    auto_run_min_interval_minutes: int = 50
+
     log_level: str = "INFO"
 
     @property

@@ -1,11 +1,12 @@
 """Запросы сайта к БД."""
 
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session, selectinload
 
-from app.models import Game, GamePlatform
+from app.models import Game, GamePlatform, Run
 
 PAGE_SIZE = 24
 SORTS = {
@@ -95,3 +96,33 @@ def similar_games(session: Session, game: Game, limit: int = SIMILAR_LIMIT) -> l
         scored.append((score, other.metascore or 0, other, reasons))
     scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
     return [(other, reasons) for _, _, other, reasons in scored[:limit]]
+
+
+AUTO_TRIGGERS = ("cron", "schedule")
+STALE_RUN_MINUTES = 15
+
+
+def auto_run_blocker(session: Session, min_interval_minutes: int) -> str | None:
+    """Причина не запускать автоматический прогон сейчас, или None.
+
+    Блокирует, если прогон ещё идёт (живой heartbeat) или автоматический прогон уже был
+    за последние `min_interval_minutes` минут.
+    """
+    now = datetime.now(UTC)
+    running = session.scalars(
+        select(Run)
+        .where(Run.status == "running", Run.heartbeat_at > now - timedelta(minutes=STALE_RUN_MINUTES))
+        .order_by(Run.started_at.desc())
+        .limit(1)
+    ).first()
+    if running:
+        return f"run #{running.id} is still running"
+    recent = session.scalars(
+        select(Run)
+        .where(Run.trigger.in_(AUTO_TRIGGERS), Run.started_at > now - timedelta(minutes=min_interval_minutes))
+        .order_by(Run.started_at.desc())
+        .limit(1)
+    ).first()
+    if recent:
+        return f"automatic run #{recent.id} already started at {recent.started_at:%H:%M} UTC"
+    return None

@@ -14,6 +14,15 @@ import sys
 
 from app.config import get_settings
 from app.metacritic import MetacriticClient
+from app.queries import AUTO_TRIGGERS
+
+
+def _auto_run_blocker() -> str | None:
+    from app.db import session_scope
+    from app.queries import auto_run_blocker
+
+    with session_scope(serverless=False) as session:
+        return auto_run_blocker(session, get_settings().auto_run_min_interval_minutes)
 
 
 async def _print_game(slug: str) -> None:
@@ -46,6 +55,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "run":
         from app.worker.runner import run_once
 
+        if args.trigger in AUTO_TRIGGERS and (reason := _auto_run_blocker()):
+            # Внешний cron и запасной cron GitHub: в час выполняется только первый из них.
+            logging.getLogger("app.worker").info("automatic run skipped: %s", reason)
+            return 0
         asyncio.run(run_once(args.trigger))
     elif args.command == "summarize":
         from app.worker.runner import summarize_backlog

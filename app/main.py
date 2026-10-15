@@ -1,10 +1,12 @@
 """Сайт. Vercel находит `app` в app/main.py автоматически."""
 
+import hmac
 import logging
 from pathlib import Path
 from urllib.parse import urlencode
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import text
@@ -12,6 +14,7 @@ from sqlalchemy import text
 from app import queries
 from app.config import get_settings
 from app.db import DatabaseNotConfigured, session_scope
+from app.github import DispatchError, dispatch_worker
 
 logging.basicConfig(level=get_settings().log_level)
 log = logging.getLogger(__name__)
@@ -32,6 +35,33 @@ def health() -> JSONResponse:
         log.exception("health check failed")
         return JSONResponse({"status": "degraded", "db": f"error: {type(e).__name__}"}, status_code=503)
     return JSONResponse({"status": "ok", "db": "ok", "migration": revision})
+
+
+def _auto_run_blocker() -> str | None:
+    with session_scope() as session:
+        return queries.auto_run_blocker(session, get_settings().auto_run_min_interval_minutes)
+
+
+@app.api_route("/api/cron", methods=["GET", "POST"], include_in_schema=False)
+async def cron(authorization: str | None = Header(default=None)) -> JSONResponse:
+    """Ежечасный запуск воркера: внешний cron → сюда → workflow_dispatch в GitHub Actions."""
+    settings = get_settings()
+    if not settings.cron_secret or not settings.github_dispatch_token:
+        return JSONResponse({"error": "CRON_SECRET or GITHUB_DISPATCH_TOKEN is not configured"}, status_code=503)
+    if not authorization or not hmac.compare_digest(authorization, f"Bearer {settings.cron_secret}"):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+    blocker = await run_in_threadpool(_auto_run_blocker)
+    if blocker:
+        log.info("cron: dispatch skipped: %s", blocker)
+        return JSONResponse({"dispatched": False, "reason": blocker})
+    try:
+        await dispatch_worker(settings, "cron")
+    except DispatchError as e:
+        log.error("cron: dispatch failed: %s", e)
+        return JSONResponse({"dispatched": False, "error": str(e)}, status_code=502)
+    log.info("cron: worker dispatched")
+    return JSONResponse({"dispatched": True})
 
 
 @app.get("/", response_class=HTMLResponse)
