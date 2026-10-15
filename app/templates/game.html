@@ -13,11 +13,6 @@
   .lead-scores .label { line-height: 1.25; font-size: 13px; }
   .lead-scores .label b { display: block; color: var(--fg); font-size: 14px; }
   .tags { display: flex; flex-wrap: wrap; gap: 4px; }
-  .crumbs { margin: 0 0 14px; }
-  .back { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px 6px 8px; border-radius: 999px;
-    border: 1px solid var(--line); background: var(--card); color: var(--muted); font-size: 14px; font-weight: 600; }
-  .back:hover { color: var(--fg); border-color: var(--accent); text-decoration: none; }
-  .back .icon { width: 16px; height: 16px; }
   .facts { margin: 12px 0 0; }
   .facts div { margin-bottom: 2px; }
   .desc { margin: 10px 0 0; }
@@ -82,7 +77,6 @@
 </style>
 {% endblock %}
 {% block content %}
-<nav class="crumbs"><a class="back" href="/" id="back"><svg class="icon"><use href="#i-back"/></svg>Все игры</a></nav>
 <div class="hero">
   {{ cover(game.cover_url, game.title) }}
   <div>
@@ -163,17 +157,4 @@
     <p class="muted">Похожих игр пока нет.</p>
   {% endif %}
 </div>
-{% endblock %}
-{% block scripts %}
-<script>
-document.getElementById('back')?.addEventListener('click', (e) => {
-  try {
-    const from = new URL(document.referrer);
-    if (from.origin === location.origin && from.pathname === '/' && history.length > 1) {
-      e.preventDefault();
-      history.back();
-    }
-  } catch (_) { /* прямой заход: обычная ссылка на список */ }
-});
-</script>
 {% endblock %}
