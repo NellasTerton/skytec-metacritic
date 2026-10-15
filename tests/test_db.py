@@ -10,9 +10,10 @@ import pytest
 from sqlalchemy import delete, select
 
 from app.db import session_scope
+from app.metacritic import parse
 from app.models import CrawlState, Game, GamePlatform, ReviewSummary, Run, RunItem
 from app.worker import runner
-from tests.conftest import requires_db
+from tests.conftest import load, requires_db
 from tests.fakes import FakeGameClient
 
 pytestmark = requires_db
@@ -79,6 +80,52 @@ async def test_two_runs_new_releases_then_browse(isolated_day):
         assert game.developers == ["Dev Studio"] and game.metascore == 80
         assert [p.slug for p in game.platforms] == ["pc", "playstation-5"]
         assert s.get_one(CrawlState, TEST_DAY).phase == "browse"
+
+
+class FakeLLM:
+    available = True
+
+    def __init__(self):
+        self.calls = 0
+
+    async def complete_json(self, system, user, **kw):
+        self.calls += 1
+        return {
+            "critic": {"summary": "Критикам нравится", "pros": ["мир"], "cons": ["камера"]},
+            "user": {"summary": "Игрокам нравится", "pros": ["боссы"], "cons": []},
+        }, "fake/model"
+
+
+async def test_summaries_written_once_per_review_set(isolated_day):
+    tag, created = isolated_day
+    slug = f"test-{tag}-sum"
+    client = FakeGameClient([slug], [])
+    real = client.game
+
+    async def game_with_reviews(s):
+        details = await real(s)
+        sample = parse.parse_composer(load("composer_elden-ring"))
+        details.critic_reviews_sample, details.user_reviews_sample = (
+            sample.critic_reviews_sample,
+            sample.user_reviews_sample,
+        )
+        return details
+
+    client.game = game_with_reviews
+    llm = FakeLLM()
+    created.append(await runner.run_once("test", client=client, llm=llm))
+    with session_scope(serverless=False) as s:
+        game = s.scalars(select(Game).where(Game.slug == slug)).one()
+        summaries = {x.kind: x for x in game.summaries}
+        assert summaries["critic"].pros == ["мир"] and summaries["user"].summary == "Игрокам нравится"
+        assert summaries["critic"].model == "fake/model" and summaries["user"].source_hash
+        run = s.get_one(Run, created[-1])
+        assert run.details["summaries"] == {"needed": 1, "done": 1, "failed": 0}
+        s.execute(delete(RunItem).where(RunItem.day == TEST_DAY))
+        s.execute(delete(CrawlState).where(CrawlState.day == TEST_DAY))
+
+    created.append(await runner.run_once("test", client=client, llm=llm))
+    assert llm.calls == 1  # отзывы не изменились — LLM повторно не вызывается
 
 
 async def test_upsert_updates_existing_game(isolated_day):

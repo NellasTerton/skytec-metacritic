@@ -6,7 +6,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.metacritic import GameDetails
-from app.models import CrawlState, Game, GamePlatform, RunItem
+from app.models import CrawlState, Game, GamePlatform, ReviewSummary, RunItem
+from app.summaries import SummaryResult
 from app.worker.selection import CrawlCursor
 
 
@@ -29,6 +30,34 @@ def save_cursor(session: Session, day: date, cursor: CrawlCursor) -> None:
 
 def processed_slugs(session: Session, day: date) -> set[str]:
     return set(session.scalars(select(RunItem.game_slug).where(RunItem.day == day)))
+
+
+def summary_hashes(session: Session, slugs: list[str]) -> dict[str, dict[str, str | None]]:
+    rows = session.execute(
+        select(Game.slug, ReviewSummary.kind, ReviewSummary.source_hash)
+        .join(ReviewSummary, ReviewSummary.game_id == Game.id)
+        .where(Game.slug.in_(slugs))
+    )
+    out: dict[str, dict[str, str | None]] = {}
+    for slug, kind, source_hash in rows:
+        out.setdefault(slug, {})[kind] = source_hash
+    return out
+
+
+def save_summaries(session: Session, slug: str, results: list[SummaryResult]) -> None:
+    game = session.scalars(select(Game).where(Game.slug == slug)).one()
+    existing = {s.kind: s for s in game.summaries}
+    for result in results:
+        row = existing.get(result.kind)
+        if row is None:
+            row = ReviewSummary(kind=result.kind)
+            game.summaries.append(row)
+        row.summary = result.summary
+        row.pros = result.pros
+        row.cons = result.cons
+        row.review_count = result.review_count
+        row.source_hash = result.source_hash
+        row.model = result.model
 
 
 def upsert_game(session: Session, details: GameDetails) -> Game:

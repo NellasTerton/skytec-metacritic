@@ -1,4 +1,4 @@
-"""Один прогон воркера: выбрать до 20 игр, забрать карточки, сохранить, отчитаться в runs."""
+"""Один прогон воркера: выбрать до 20 игр, забрать карточки, сохранить, написать резюме отзывов."""
 
 import asyncio
 import logging
@@ -7,8 +7,10 @@ from zoneinfo import ZoneInfo
 
 from app.config import get_settings
 from app.db import session_scope
+from app.llm import LLMClient, LLMError, providers_from_settings
 from app.metacritic import GameDetails, MetacriticClient
 from app.models import Run, RunItem
+from app.summaries import kinds_to_update, summarize
 from app.worker import store
 from app.worker.selection import select_games
 
@@ -21,6 +23,17 @@ def service_today() -> date:
     return datetime.now(ZoneInfo(get_settings().service_tz)).date()
 
 
+def _update_run(run_id: int, **fields) -> None:
+    with session_scope(serverless=False) as session:
+        run = session.get_one(Run, run_id)
+        details = fields.pop("details", None)
+        if details:
+            run.details = {**run.details, **details}
+        for key, value in fields.items():
+            setattr(run, key, value)
+        run.heartbeat_at = store.now()
+
+
 async def _fetch(client: MetacriticClient, slug: str) -> tuple[str, GameDetails | Exception]:
     try:
         return slug, await client.game(slug)
@@ -28,7 +41,60 @@ async def _fetch(client: MetacriticClient, slug: str) -> tuple[str, GameDetails 
         return slug, e
 
 
-async def run_once(trigger: str, *, client: MetacriticClient | None = None) -> int:
+async def _collect(run_id: int, day: date, client: MetacriticClient, sources: dict[str, str]) -> list[GameDetails]:
+    fetched: list[GameDetails] = []
+    failed = 0
+    for next_done in asyncio.as_completed([_fetch(client, slug) for slug in sources]):
+        slug, result = await next_done
+        with session_scope(serverless=False) as session:
+            item = RunItem(run_id=run_id, day=day, game_slug=slug, source=sources[slug], status="success")
+            if isinstance(result, Exception):
+                item.status, item.error = "failed", f"{type(result).__name__}: {result}"[:2000]
+                failed += 1
+                log.warning("run #%d: %s failed: %s", run_id, slug, item.error)
+            else:
+                store.upsert_game(session, result)
+                fetched.append(result)
+            session.add(item)
+            run = session.get_one(Run, run_id)
+            run.games_processed, run.games_failed = len(fetched), failed
+            run.heartbeat_at = store.now()
+            run.message = f"collected: {slug}"
+    return fetched
+
+
+async def _summarize(run_id: int, llm: LLMClient | None, games: list[GameDetails], limit: int) -> dict:
+    if llm is None:
+        log.info("run #%d: no LLM provider configured, summaries skipped", run_id)
+        return {"skipped": "no LLM provider configured"}
+
+    with session_scope(serverless=False) as session:
+        known = store.summary_hashes(session, [g.slug for g in games])
+    todo = [(g, kinds) for g in games if (kinds := kinds_to_update(g, known.get(g.slug, {})))][:limit]
+    stats = {"needed": len(todo), "done": 0, "failed": 0}
+
+    for i, (game, kinds) in enumerate(todo, 1):
+        if not llm.available:
+            stats["stopped"] = "all LLM providers exhausted"
+            break
+        _update_run(run_id, message=f"summaries {i}/{len(todo)}: {game.slug}")
+        try:
+            results = await summarize(llm, game, kinds)
+        except LLMError as e:
+            stats["failed"] += 1
+            log.warning("run #%d: summary for %s failed: %s", run_id, game.slug, e)
+            continue
+        with session_scope(serverless=False) as session:
+            store.save_summaries(session, game.slug, results)
+        stats["done"] += 1
+        _update_run(run_id, details={"summaries": stats})
+    log.info("run #%d summaries: %s", run_id, stats)
+    return stats
+
+
+async def run_once(
+    trigger: str, *, client: MetacriticClient | None = None, llm: LLMClient | None = None, use_llm: bool = True
+) -> int:
     settings = get_settings()
     day = service_today()
     with session_scope(serverless=False) as session:
@@ -38,70 +104,48 @@ async def run_once(trigger: str, *, client: MetacriticClient | None = None) -> i
         run_id = run.id
         cursor = store.load_cursor(session, day)
         done = store.processed_slugs(session, day)
-    log.info(
-        "run #%d started: trigger=%s day=%s phase=%s processed_today=%d",
-        run_id,
-        trigger,
-        day,
-        cursor.phase,
-        len(done),
-    )
+    log.info("run #%d started: trigger=%s day=%s phase=%s today=%d", run_id, trigger, day, cursor.phase, len(done))
 
-    own_client = client is None
+    own_client, own_llm = client is None, llm is None
     client = client or MetacriticClient(
         concurrency=settings.metacritic_concurrency,
         timeout=settings.metacritic_timeout,
         retries=settings.metacritic_retries,
     )
+    if llm is None and use_llm and (providers := providers_from_settings(settings)):
+        llm = LLMClient(providers)
     try:
         selection = await select_games(client, cursor, done, batch_size=BATCH_SIZE)
-        sources = {slug: source for slug, source in selection.picked}
+        sources = dict(selection.picked)
         with session_scope(serverless=False) as session:
             store.save_cursor(session, day, selection.cursor)
-            run = session.get_one(Run, run_id)
-            run.phase = selection.picked[0][1] if selection.picked else selection.cursor.phase
-            run.games_found = len(selection.picked)
-            run.heartbeat_at = store.now()
-            run.details = {
-                **run.details,
+        phase = selection.picked[0][1] if selection.picked else selection.cursor.phase
+        _update_run(
+            run_id,
+            phase=phase,
+            games_found=len(sources),
+            details={
                 "slugs": list(sources),
                 "next_offset": selection.cursor.next_offset,
                 "pages_fetched": selection.pages_fetched,
                 "exhausted": selection.exhausted,
-            }
-        log.info("run #%d picked %d games (%s)", run_id, len(sources), run.phase)
+            },
+        )
+        log.info("run #%d picked %d games (%s)", run_id, len(sources), phase)
 
-        processed = failed = 0
-        for next_done in asyncio.as_completed([_fetch(client, slug) for slug in sources]):
-            slug, result = await next_done
-            with session_scope(serverless=False) as session:
-                item = RunItem(run_id=run_id, day=day, game_slug=slug, source=sources[slug], status="success")
-                if isinstance(result, Exception):
-                    item.status, item.error = "failed", f"{type(result).__name__}: {result}"[:2000]
-                    failed += 1
-                    log.warning("run #%d: %s failed: %s", run_id, slug, item.error)
-                else:
-                    store.upsert_game(session, result)
-                    processed += 1
-                session.add(item)
-                run = session.get_one(Run, run_id)
-                run.games_processed, run.games_failed = processed, failed
-                run.heartbeat_at = store.now()
-                run.message = f"last: {slug}"
+        games = await _collect(run_id, day, client, sources)
+        summaries = await _summarize(run_id, llm, games, settings.summaries_per_run)
     except Exception as e:
-        with session_scope(serverless=False) as session:
-            run = session.get_one(Run, run_id)
-            run.status, run.finished_at, run.message = "failed", store.now(), f"{type(e).__name__}: {e}"[:2000]
+        _update_run(run_id, status="failed", finished_at=store.now(), message=f"{type(e).__name__}: {e}"[:2000])
         log.exception("run #%d failed", run_id)
         raise
     finally:
         if own_client:
             await client.aclose()
+        if own_llm and llm is not None:
+            await llm.aclose()
 
-    with session_scope(serverless=False) as session:
-        run = session.get_one(Run, run_id)
-        run.status = "success"
-        run.finished_at = run.heartbeat_at = store.now()
-        run.message = f"processed {processed}, failed {failed}"
-    log.info("run #%d finished: processed=%d failed=%d", run_id, processed, failed)
+    message = f"games {len(games)}/{len(sources)}, summaries {summaries.get('done', 0)}"
+    _update_run(run_id, status="success", finished_at=store.now(), message=message, details={"summaries": summaries})
+    log.info("run #%d finished: %s", run_id, message)
     return run_id

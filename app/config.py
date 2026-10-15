@@ -18,6 +18,16 @@ class Settings(BaseSettings):
     metacritic_timeout: float = 30.0
     metacritic_retries: int = 3
 
+    # LLM для резюме отзывов: любой из провайдеров, порядок = порядок фолбэка.
+    groq_api_key: str | None = None
+    groq_model: str = "llama-3.3-70b-versatile"
+    gemini_api_key: str | None = None
+    gemini_model: str = "gemini-flash-lite-latest"
+    llm_base_url: str | None = None  # любой другой OpenAI-совместимый провайдер
+    llm_api_key: str | None = None
+    llm_model: str | None = None
+    summaries_per_run: int = 20
+
     log_level: str = "INFO"
 
     @property
