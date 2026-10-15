@@ -162,19 +162,26 @@ async def test_analyze_uses_transcript_when_available():
     assert result.method == "captions" and result.pros == ["атмосфера", "стиль"] and result.liked is True
 
 
-async def test_analyze_falls_back_to_last_20_minutes_of_video():
+async def test_analyze_falls_back_to_gemini_transcript_of_last_20_minutes():
     seen = []
+    replies = iter([ok({"transcript": "spoken   words\n here"}), ok(GOOD)])
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(json.loads(request.content))
+        return next(replies)
+
     video = v("abc", "Game - Let's Play", 1, 91)
-    payload = {**GOOD, "transcript": "spoken words"}
-    async with httpx.AsyncClient(transport=gemini_transport({"lite": ok(payload)}, seen)) as client:
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         result = await analyze(client, "k", ["lite"], "Game", video, None)
-    body = seen[0][1]
-    clip = body["contents"][0]["parts"][0]
+    # 1-й запрос: расшифровка видео по ссылке, последние 20 минут.
+    clip = seen[0]["contents"][0]["parts"][0]
     assert clip["file_data"]["file_uri"] == "https://www.youtube.com/watch?v=abc"
     assert clip["video_metadata"] == {"start_offset": f"{91 * 60 - 1200}s", "end_offset": f"{91 * 60}s"}
-    assert body["generationConfig"]["mediaResolution"] == "MEDIA_RESOLUTION_LOW"
-    assert '"transcript"' in body["contents"][0]["parts"][1]["text"]  # расшифровку делает Gemini
-    assert result.method == "video" and result.transcript == "spoken words"
+    config = seen[0]["generationConfig"]
+    assert config["mediaResolution"] == "MEDIA_RESOLUTION_LOW" and config["maxOutputTokens"] == 16384
+    # 2-й запрос: заключение по тексту расшифровки.
+    assert "spoken words here" in seen[1]["contents"][0]["parts"][0]["text"]
+    assert result.method == "video" and result.transcript == "spoken words here"
 
 
 async def test_analyze_rejects_empty_answer():

@@ -187,21 +187,21 @@ RESULT_SCHEMA = (
 )
 
 
-TRANSCRIBE_STEP = (
-    '0. Дословно расшифруй речь блогера на этом отрезке, на языке оригинала, без таймкодов — поле "transcript".\n'
+TRANSCRIBE_PROMPT = (
+    "Дословно расшифруй ВСЮ речь блогера в этом отрезке летсплея, от первого до последнего слова, на языке "
+    "оригинала. Не пропускай и не сокращай фразы, не пересказывай. Без таймкодов. Ответ — строго JSON: "
+    '{"transcript": "..."}'
 )
 
 
-def build_prompt(game_title: str, source: str, *, transcribe: bool = False) -> str:
-    schema = RESULT_SCHEMA.replace('{"retelling"', '{"transcript": "...", "retelling"') if transcribe else RESULT_SCHEMA
+def build_prompt(game_title: str, source: str) -> str:
     return (
         f"Это {source} летсплея игры «{game_title}»: блогер играет и комментирует вслух.\n"
-        + (TRANSCRIBE_STEP if transcribe else "")
-        + "1. Перескажи по-русски, что блогер говорит об игре по ходу прохождения: что впечатляет, что "
+        "1. Перескажи по-русски, что блогер говорит об игре по ходу прохождения: что впечатляет, что "
         "раздражает, с чем сравнивает. Это пересказ его речи, а не описание картинки. 5–7 предложений.\n"
         "2. Сделай заключение: понравилась ли игра блогеру и кому она подойдёт. Особенно учитывай его "
         "итоговые слова.\n"
-        "Опирайся только на материал ролика, ничего не придумывай. Ответ — строго JSON:\n" + schema
+        "Опирайся только на текст, ничего не придумывай. Ответ — строго JSON:\n" + RESULT_SCHEMA
     )
 
 
@@ -237,33 +237,46 @@ def _clean(items) -> list[str]:
     return [str(x).strip() for x in items or [] if str(x).strip()][:4] if isinstance(items, list) else []
 
 
+async def transcribe_video_tail(client: httpx.AsyncClient, gemini_key: str, models: list[str], video: Video) -> str:
+    """Расшифровка речи последних 20 минут силами Gemini — когда субтитры недоступны.
+
+    Отдельным запросом: вместе с анализом в одном ответе модель сокращает расшифровку до пары абзацев.
+    """
+    start = max(0, video.duration_s - VIDEO_TAIL_SECONDS)
+    parts = [
+        {
+            "file_data": {"file_uri": video.url, "mime_type": "video/*"},
+            "video_metadata": {"start_offset": f"{start}s", "end_offset": f"{video.duration_s}s"},
+        },
+        {"text": TRANSCRIBE_PROMPT},
+    ]
+    config = {"mediaResolution": "MEDIA_RESOLUTION_LOW", "temperature": 0, "maxOutputTokens": 16384}
+    data, _ = await gemini_json(client, gemini_key, models, parts, **config)
+    text = " ".join(str(data.get("transcript") or "").split())
+    if not text:
+        raise LetsplayError("Gemini returned an empty transcript")
+    return text
+
+
 async def analyze(
     client: httpx.AsyncClient, gemini_key: str, models: list[str], game_title: str, video: Video, transcript: str | None
 ) -> LetsplayResult:
-    if transcript:
-        method = "captions"
-        parts = [{"text": build_prompt(game_title, "расшифровка речи из") + "\n\nРасшифровка:\n" + transcript}]
-        config = {}
-    else:
+    """Речь блогера → текст → заключение. Текст — из субтитров YouTube или, если их нет, от Gemini по видео."""
+    method = "captions"
+    source = "расшифровка речи из"
+    if not transcript:
         method = "video"
-        start = max(0, video.duration_s - VIDEO_TAIL_SECONDS)
-        parts = [
-            {
-                "file_data": {"file_uri": video.url, "mime_type": "video/*"},
-                "video_metadata": {"start_offset": f"{start}s", "end_offset": f"{video.duration_s}s"},
-            },
-            # Субтитров нет (YouTube не отдаёт их облачным IP) — расшифровку речи делает сам Gemini.
-            {"text": build_prompt(game_title, "последние 20 минут", transcribe=True)},
-        ]
-        config = {"mediaResolution": "MEDIA_RESOLUTION_LOW"}
-    data, model = await gemini_json(client, gemini_key, models, parts, **config)
+        source = "расшифровка речи из последних 20 минут"
+        transcript = await transcribe_video_tail(client, gemini_key, models, video)
+    prompt = build_prompt(game_title, source) + "\n\nРасшифровка:\n" + transcript
+    data, model = await gemini_json(client, gemini_key, models, [{"text": prompt}])
     if not str(data.get("retelling", "")).strip() or not str(data.get("verdict", "")).strip():
         raise LetsplayError("Gemini returned an empty retelling or verdict")
     liked = data.get("liked")
     return LetsplayResult(
         video=video,
         method=method,
-        transcript=transcript or (str(data.get("transcript") or "").strip() or None),
+        transcript=transcript,
         retelling=str(data["retelling"]).strip(),
         verdict=str(data["verdict"]).strip(),
         pros=_clean(data.get("pros")),
