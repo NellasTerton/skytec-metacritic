@@ -31,16 +31,25 @@ def _escape_like(value: str) -> str:
 
 
 def list_games(
-    session: Session, *, q: str = "", platform: str = "", sort: str = "metascore", page: int = 1
+    session: Session,
+    *,
+    q: str = "",
+    platform: str = "",
+    sort: str = "metascore",
+    scored_only: bool = True,
+    page: int = 1,
 ) -> GameList:
     stmt: Select = select(Game)
-    # С фильтром по платформе сортируем по оценкам именно этой платформы.
+    # С фильтром по платформе фильтруем и сортируем по оценкам именно этой платформы.
     metascore, userscore = Game.metascore, Game.userscore
     if platform:
         stmt = stmt.join(GamePlatform, GamePlatform.game_id == Game.id).where(GamePlatform.slug == platform)
         metascore, userscore = GamePlatform.metascore, GamePlatform.userscore
     if q.strip():
         stmt = stmt.where(Game.title.ilike(f"%{_escape_like(q.strip())}%", escape="\\"))
+    unscored = metascore.is_(None) & userscore.is_(None)
+    if scored_only:
+        stmt = stmt.where(~unscored)
 
     order = {
         "metascore": [metascore.desc().nulls_last(), userscore.desc().nulls_last()],
@@ -54,19 +63,19 @@ def list_games(
     page = min(max(page, 1), pages)
     games = session.scalars(
         stmt.options(selectinload(Game.platforms))
-        .order_by(*order, Game.id)
+        # Игры без оценок всегда в конце, при любой сортировке (false < true).
+        .order_by(unscored.asc(), *order, Game.id)
         .offset((page - 1) * PAGE_SIZE)
         .limit(PAGE_SIZE)
     ).all()
     return GameList(games=list(games), total=total, page=page, pages=pages)
 
 
-def platform_options(session: Session) -> list[tuple[str, str, int]]:
-    rows = session.execute(
-        select(GamePlatform.slug, func.min(GamePlatform.name), func.count())
-        .group_by(GamePlatform.slug)
-        .order_by(func.count().desc())
-    )
+def platform_options(session: Session, *, scored_only: bool = True) -> list[tuple[str, str, int]]:
+    stmt = select(GamePlatform.slug, func.min(GamePlatform.name), func.count()).group_by(GamePlatform.slug)
+    if scored_only:
+        stmt = stmt.where(GamePlatform.metascore.is_not(None) | GamePlatform.userscore.is_not(None))
+    rows = session.execute(stmt.order_by(func.count().desc(), GamePlatform.slug))
     return [(slug, name, count) for slug, name, count in rows]
 
 

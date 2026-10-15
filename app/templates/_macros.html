@@ -1,11 +1,32 @@
 {% macro metascore(value) -%}
-  {%- if value is none -%}<span class="score" title="Metascore: мало отзывов">tbd</span>
+  {%- if value is none -%}<span class="score" title="Metascore: мало рецензий">tbd</span>
   {%- else -%}<span class="score {{ 'good' if value >= 75 else 'mixed' if value >= 50 else 'bad' }}" title="Metascore">{{ value }}</span>
   {%- endif -%}
 {%- endmacro %}
 
 {% macro userscore(value) -%}
-  {%- if value is none -%}<span class="score user" title="User score: мало отзывов">tbd</span>
+  {%- if value is none -%}<span class="score user" title="User score: мало оценок">tbd</span>
   {%- else -%}<span class="score user {{ 'good' if value >= 7.5 else 'mixed' if value >= 5 else 'bad' }}" title="User score">{{ '%.1f' % value }}</span>
   {%- endif -%}
+{%- endmacro %}
+
+{# Оценки с подписями Critics / Users. #}
+{% macro scores(meta, user) -%}
+<div class="scores">
+  <span class="score-item">{{ metascore(meta) }}<span class="score-label">Critics</span></span>
+  <span class="score-item">{{ userscore(user) }}<span class="score-label">Users</span></span>
+</div>
+{%- endmacro %}
+
+{# Обложка в единой пропорции 3:4 без обрезки: сама картинка целиком (contain),
+   под ней — та же картинка размытой подложкой. Без обложки — заглушка с инициалами. #}
+{% macro cover(url, title, cls='') -%}
+<div class="cover {{ cls }}">
+  {%- if url -%}
+    <img class="cover-bg" src="{{ url }}" alt="" aria-hidden="true" loading="lazy">
+    <img class="cover-img" src="{{ url }}" alt="{{ title }}" loading="lazy">
+  {%- else -%}
+    <span class="cover-empty">{{ title | initials }}</span>
+  {%- endif -%}
+</div>
 {%- endmacro %}

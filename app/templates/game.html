@@ -1,16 +1,27 @@
 {% extends "base.html" %}
-{% from "_macros.html" import metascore, userscore %}
+{% from "_macros.html" import metascore, userscore, cover %}
 {% block title %}{{ game.title }}{% endblock %}
 {% block head %}
 <style>
-  .hero { display: grid; grid-template-columns: 200px 1fr; gap: 20px; }
-  .hero img.cover { width: 200px; border-radius: 10px; background: var(--line); }
+  .hero { display: grid; grid-template-columns: 200px 1fr; column-gap: 20px; align-items: start; }
+  .hero .cover { width: 200px; border-radius: 10px; grid-row: span 4; }
   .hero h1 { margin: 0 0 8px; font-size: 28px; line-height: 1.2; }
-  .lead-scores { display: flex; gap: 16px; align-items: center; margin: 10px 0; }
+  .lead-scores { display: flex; gap: 20px; align-items: center; margin: 10px 0 12px; flex-wrap: wrap; }
+  .lead-scores .item { display: flex; gap: 8px; align-items: center; }
   .lead-scores .score { height: 44px; min-width: 48px; font-size: 20px; }
   .lead-scores .score.user { width: 44px; min-width: 44px; font-size: 15px; }
-  .section { margin-top: 20px; }
+  .lead-scores .label { line-height: 1.25; font-size: 13px; }
+  .lead-scores .label b { display: block; color: var(--fg); font-size: 14px; }
+  .tags { display: flex; flex-wrap: wrap; gap: 4px; }
+  .facts { margin: 12px 0 0; }
+  .facts div { margin-bottom: 2px; }
+  .desc { margin: 10px 0 0; }
+  .links { margin: 10px 0 0; }
+  .section { margin-top: 22px; }
   .section h2 { font-size: 18px; margin: 0 0 10px; }
+  .plat-table td { padding: 8px 6px; }
+  .plat-table .count { display: block; font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .plat-table .score-cell { white-space: nowrap; text-align: center; width: 1%; }
   .summaries { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
   .summaries h3 { margin: 0 0 6px; font-size: 15px; }
   .summaries ul { margin: 6px 0 0; padding-left: 18px; }
@@ -19,53 +30,62 @@
   .video { position: relative; aspect-ratio: 16 / 9; border-radius: 10px; overflow: hidden; background: #000; max-width: 720px; }
   .video iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
   .similar { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; }
-  .similar a { display: block; color: inherit; }
-  .similar img { width: 100%; aspect-ratio: 3 / 4; object-fit: cover; border-radius: 8px; background: var(--line); }
-  .similar .name { font-weight: 600; margin-top: 6px; line-height: 1.3; }
+  .similar a { display: block; color: inherit; padding: 10px; }
+  .similar a:hover { text-decoration: none; border-color: var(--accent); }
+  .similar .cover { width: 100%; }
+  .similar .name { font-weight: 600; margin-top: 8px; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical; overflow: hidden; }
+  .similar .scores { margin-top: 6px; gap: 6px; }
+  .similar .why { font-size: 12px; margin-top: 4px; }
   @media (max-width: 720px) {
-    .hero { grid-template-columns: 1fr; } .hero img.cover { width: 160px; }
+    .hero { grid-template-columns: 110px 1fr; column-gap: 14px; }
+    .hero .cover { width: 110px; grid-row: auto; }
+    .hero h1 { font-size: 21px; }
+    .hero .facts, .hero .desc, .hero .links { grid-column: 1 / -1; }
+    .lead-scores { gap: 14px; }
     .summaries { grid-template-columns: 1fr; }
+    .similar { grid-template-columns: repeat(2, 1fr); gap: 10px; }
   }
 </style>
 {% endblock %}
 {% block content %}
-<p><a href="/">← Все игры</a></p>
+<p style="margin-top:0"><a href="/">← Все игры</a></p>
 <div class="hero">
-  <div>{% if game.cover_url %}<img class="cover" src="{{ game.cover_url }}" alt="{{ game.title }}">{% endif %}</div>
+  {{ cover(game.cover_url, game.title) }}
   <div>
     <h1>{{ game.title }}</h1>
     <div class="lead-scores">
-      {{ metascore(game.metascore) }}
-      <span class="muted">Metascore{% if game.critic_review_count %}<br>{{ game.critic_review_count }} рецензий{% endif %}</span>
-      {{ userscore(game.userscore) }}
-      <span class="muted">User score{% if game.user_review_count %}<br>{{ game.user_review_count }} оценок{% endif %}</span>
+      <div class="item">{{ metascore(game.metascore) }}
+        <span class="label muted"><b>Critics</b>{{ game.critic_review_count or 0 }} рецензий</span></div>
+      <div class="item">{{ userscore(game.userscore) }}
+        <span class="label muted"><b>Users</b>{{ game.user_review_count or 0 }} оценок</span></div>
     </div>
-    <p>
-      {% if game.developers %}<strong>Разработчик:</strong> {{ game.developers | join(', ') }}<br>{% endif %}
-      {% if game.publishers %}<strong>Издатель:</strong> {{ game.publishers | join(', ') }}<br>{% endif %}
-      {% if game.release_date %}<strong>Дата выхода:</strong> {{ game.release_date.strftime('%d.%m.%Y') }}<br>{% endif %}
-      {% if game.rating %}<strong>Рейтинг ESRB:</strong> {{ game.rating }}<br>{% endif %}
-    </p>
-    <div>{% for g in game.genres %}<span class="tag">{{ g }}</span>{% endfor %}</div>
-    {% if game.description %}<p>{{ game.description }}</p>{% endif %}
-    <p class="muted">
-      <a href="https://www.metacritic.com/game/{{ game.slug }}/" target="_blank" rel="noopener">Страница на Metacritic ↗</a>
-      {% if game.last_processed_at %} · обновлено {{ game.last_processed_at.strftime('%d.%m.%Y %H:%M') }} UTC{% endif %}
-    </p>
+    <div class="tags">{% for g in game.genres %}<span class="tag">{{ g }}</span>{% endfor %}</div>
   </div>
+  <div class="facts">
+    {% if game.developers %}<div><strong>Разработчик:</strong> {{ game.developers | join(', ') }}</div>{% endif %}
+    {% if game.publishers %}<div><strong>Издатель:</strong> {{ game.publishers | join(', ') }}</div>{% endif %}
+    {% if game.release_date %}<div><strong>Дата выхода:</strong> {{ game.release_date.strftime('%d.%m.%Y') }}</div>{% endif %}
+    {% if game.rating %}<div><strong>Рейтинг ESRB:</strong> {{ game.rating }}</div>{% endif %}
+  </div>
+  {% if game.description %}<p class="desc">{{ game.description }}</p>{% endif %}
+  <p class="muted links">
+    <a href="https://www.metacritic.com/game/{{ game.slug }}/" target="_blank" rel="noopener">Страница на Metacritic ↗</a>
+    {% if game.last_processed_at %} · обновлено {{ game.last_processed_at.strftime('%d.%m.%Y %H:%M') }} UTC{% endif %}
+  </p>
 </div>
 
 <div class="section">
   <h2>Платформы</h2>
-  <div class="card table-scroll">
-    <table>
-      <tr><th>Платформа</th><th>Metascore</th><th>Рецензий</th><th>User score</th><th>Оценок</th><th>Дата выхода</th></tr>
+  <div class="card" style="padding: 6px 10px">
+    <table class="plat-table">
+      <tr><th>Платформа</th><th class="score-cell">Critics</th><th class="score-cell">Users</th></tr>
       {% for p in game.platforms %}
       <tr>
-        <td>{{ p.name }}{% if p.is_lead %} <span class="tag">основная</span>{% endif %}</td>
-        <td>{{ metascore(p.metascore) }}</td><td class="muted">{{ p.critic_review_count or 0 }}</td>
-        <td>{{ userscore(p.userscore) }}</td><td class="muted">{{ p.user_review_count or 0 }}</td>
-        <td class="muted">{{ p.release_date.strftime('%d.%m.%Y') if p.release_date else '—' }}</td>
+        <td>{{ p.name }}{% if p.is_lead %} <span class="tag">основная</span>{% endif %}
+          <span class="count">{{ p.release_date.strftime('%d.%m.%Y') if p.release_date else 'дата неизвестна' }}</span></td>
+        <td class="score-cell">{{ metascore(p.metascore) }}<span class="count">{{ p.critic_review_count or 0 }} рец.</span></td>
+        <td class="score-cell">{{ userscore(p.userscore) }}<span class="count">{{ p.user_review_count or 0 }} оц.</span></td>
       </tr>
       {% endfor %}
     </table>
@@ -106,10 +126,10 @@
   <div class="similar">
     {% for other, reasons in similar %}
     <a class="card" href="/game/{{ other.slug }}">
-      {% if other.cover_url %}<img src="{{ other.cover_url }}" alt="" loading="lazy">{% endif %}
+      {{ cover(other.cover_url, other.title) }}
       <div class="name">{{ other.title }}</div>
-      <div style="margin:4px 0">{{ metascore(other.metascore) }}</div>
-      <div class="muted" style="font-size:12px">{{ reasons | join(', ') }}</div>
+      <div class="scores">{{ metascore(other.metascore) }} {{ userscore(other.userscore) }}</div>
+      <div class="why muted">{{ reasons | join(', ') }}</div>
     </a>
     {% endfor %}
   </div>

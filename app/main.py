@@ -15,12 +15,15 @@ from app import queries
 from app.config import get_settings
 from app.db import DatabaseNotConfigured, session_scope
 from app.github import DispatchError, dispatch_worker
+from app.platforms import short_platform
 
 logging.basicConfig(level=get_settings().log_level)
 log = logging.getLogger(__name__)
 
 app = FastAPI(title="Metacritic Games", docs_url="/api/docs", openapi_url="/api/openapi.json")
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
+templates.env.filters["short_platform"] = short_platform
+templates.env.filters["initials"] = lambda title: "".join(w[0] for w in (title or "?").split()[:2]).upper()
 
 
 @app.get("/api/health")
@@ -65,22 +68,42 @@ async def cron(authorization: str | None = Header(default=None)) -> JSONResponse
 
 
 @app.get("/", response_class=HTMLResponse)
-def index(request: Request, q: str = "", platform: str = "", sort: str = "metascore", page: int = 1) -> HTMLResponse:
+def index(
+    request: Request,
+    q: str = "",
+    platform: str = "",
+    sort: str = "metascore",
+    page: int = 1,
+    all: int = 0,
+    partial: int = 0,
+) -> HTMLResponse:
     if sort not in queries.SORTS:
         sort = "metascore"
-    context = {"nav": "games", "q": q, "platform": platform, "sort": sort, "sorts": queries.SORTS}
+    scored_only = not all
+    context = {
+        "nav": "games",
+        "q": q,
+        "platform": platform,
+        "sort": sort,
+        "sorts": queries.SORTS,
+        "scored_only": scored_only,
+    }
 
     def page_url(n: int) -> str:
-        params = {k: v for k, v in {"q": q, "platform": platform, "sort": sort, "page": n}.items() if v}
-        return "/?" + urlencode(params)
+        params = {"q": q, "platform": platform, "sort": sort, "all": all, "page": n}
+        return "/?" + urlencode({k: v for k, v in params.items() if v})
 
     try:
         with session_scope() as session:
-            context["result"] = queries.list_games(session, q=q, platform=platform, sort=sort, page=page)
-            context["platforms"] = queries.platform_options(session)
+            context["result"] = queries.list_games(
+                session, q=q, platform=platform, sort=sort, scored_only=scored_only, page=page
+            )
+            context["platforms"] = queries.platform_options(session, scored_only=scored_only)
     except DatabaseNotConfigured:
         return templates.TemplateResponse(request, "index.html", {**context, "configured": False})
-    return templates.TemplateResponse(request, "index.html", {**context, "configured": True, "page_url": page_url})
+    # partial=1 — только блок результатов, для поиска при вводе без перезагрузки страницы.
+    template = "_results.html" if partial else "index.html"
+    return templates.TemplateResponse(request, template, {**context, "configured": True, "page_url": page_url})
 
 
 @app.get("/game/{slug}", response_class=HTMLResponse)

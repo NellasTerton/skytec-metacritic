@@ -1,0 +1,37 @@
+{% from "_macros.html" import scores, cover %}
+<p class="muted found">Найдено: {{ result.total }}</p>
+{% if result.games %}
+<div class="grid">
+  {% for game in result.games %}
+  {% set p = (game.platforms | selectattr('slug', 'equalto', platform) | first) if platform else none %}
+  {% set plats = game.platforms %}
+  {% if p %}{% set plats = [p] + (game.platforms | rejectattr('slug', 'equalto', platform) | list) %}{% endif %}
+  <a class="card game" href="/game/{{ game.slug }}">
+    {{ cover(game.cover_url, game.title) }}
+    <div class="game-body">
+      <h3 title="{{ game.title }}">{{ game.title }}</h3>
+      {{ scores(p.metascore if p else game.metascore, p.userscore if p else game.userscore) }}
+      <div class="meta muted">
+        {{- game.release_date.strftime('%d.%m.%Y') if game.release_date else 'дата неизвестна' -}}
+        {%- if game.developers %} · {{ game.developers[0] }}{% endif -%}
+      </div>
+      <div class="plats">
+        {%- for pl in plats[:4] -%}
+          <span class="tag {{ 'active' if p and pl.slug == p.slug }}" title="{{ pl.name }}">{{ pl.name | short_platform }}</span>
+        {%- endfor -%}
+        {%- if plats | length > 4 %}<span class="tag">+{{ plats | length - 4 }}</span>{% endif -%}
+      </div>
+    </div>
+  </a>
+  {% endfor %}
+</div>
+{% if result.pages > 1 %}
+<div class="pager">
+  {% if result.page > 1 %}<a class="btn" href="{{ page_url(result.page - 1) }}">← Назад</a>{% endif %}
+  <span class="muted">{{ result.page }} / {{ result.pages }}</span>
+  {% if result.page < result.pages %}<a class="btn" href="{{ page_url(result.page + 1) }}">Вперёд →</a>{% endif %}
+</div>
+{% endif %}
+{% else %}
+  <div class="card muted">Ничего не найдено.{% if scored_only %} Возможно, игра есть среди игр без оценок — снимите галочку «Только с оценками».{% endif %}</div>
+{% endif %}
