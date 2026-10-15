@@ -165,14 +165,16 @@ async def test_analyze_uses_transcript_when_available():
 async def test_analyze_falls_back_to_last_20_minutes_of_video():
     seen = []
     video = v("abc", "Game - Let's Play", 1, 91)
-    async with httpx.AsyncClient(transport=gemini_transport({"lite": ok(GOOD)}, seen)) as client:
+    payload = {**GOOD, "transcript": "spoken words"}
+    async with httpx.AsyncClient(transport=gemini_transport({"lite": ok(payload)}, seen)) as client:
         result = await analyze(client, "k", ["lite"], "Game", video, None)
     body = seen[0][1]
     clip = body["contents"][0]["parts"][0]
     assert clip["file_data"]["file_uri"] == "https://www.youtube.com/watch?v=abc"
     assert clip["video_metadata"] == {"start_offset": f"{91 * 60 - 1200}s", "end_offset": f"{91 * 60}s"}
     assert body["generationConfig"]["mediaResolution"] == "MEDIA_RESOLUTION_LOW"
-    assert result.method == "video" and result.transcript is None
+    assert '"transcript"' in body["contents"][0]["parts"][1]["text"]  # расшифровку делает Gemini
+    assert result.method == "video" and result.transcript == "spoken words"
 
 
 async def test_analyze_rejects_empty_answer():

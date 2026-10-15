@@ -30,7 +30,8 @@
     </div>
     {% if lp.transcript %}
     <details class="transcript">
-      <summary>Расшифровка речи блогера <span class="muted">(англ., {{ lp.transcript.split() | length }} слов)</span></summary>
+      <summary>Расшифровка речи блогера
+        <span class="muted">({{ 'весь ролик' if lp.method == 'captions' else 'последние 20 минут' }}, язык оригинала)</span></summary>
       <div class="transcript-body">{{ lp.transcript }}</div>
     </details>
     {% endif %}

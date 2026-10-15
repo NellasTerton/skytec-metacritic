@@ -187,14 +187,21 @@ RESULT_SCHEMA = (
 )
 
 
-def build_prompt(game_title: str, source: str) -> str:
+TRANSCRIBE_STEP = (
+    '0. Дословно расшифруй речь блогера на этом отрезке, на языке оригинала, без таймкодов — поле "transcript".\n'
+)
+
+
+def build_prompt(game_title: str, source: str, *, transcribe: bool = False) -> str:
+    schema = RESULT_SCHEMA.replace('{"retelling"', '{"transcript": "...", "retelling"') if transcribe else RESULT_SCHEMA
     return (
         f"Это {source} летсплея игры «{game_title}»: блогер играет и комментирует вслух.\n"
-        "1. Перескажи по-русски, что блогер говорит об игре по ходу прохождения: что впечатляет, что "
+        + (TRANSCRIBE_STEP if transcribe else "")
+        + "1. Перескажи по-русски, что блогер говорит об игре по ходу прохождения: что впечатляет, что "
         "раздражает, с чем сравнивает. Это пересказ его речи, а не описание картинки. 5–7 предложений.\n"
         "2. Сделай заключение: понравилась ли игра блогеру и кому она подойдёт. Особенно учитывай его "
         "итоговые слова.\n"
-        "Опирайся только на материал ролика, ничего не придумывай. Ответ — строго JSON:\n" + RESULT_SCHEMA
+        "Опирайся только на материал ролика, ничего не придумывай. Ответ — строго JSON:\n" + schema
     )
 
 
@@ -245,7 +252,8 @@ async def analyze(
                 "file_data": {"file_uri": video.url, "mime_type": "video/*"},
                 "video_metadata": {"start_offset": f"{start}s", "end_offset": f"{video.duration_s}s"},
             },
-            {"text": build_prompt(game_title, "последние 20 минут")},
+            # Субтитров нет (YouTube не отдаёт их облачным IP) — расшифровку речи делает сам Gemini.
+            {"text": build_prompt(game_title, "последние 20 минут", transcribe=True)},
         ]
         config = {"mediaResolution": "MEDIA_RESOLUTION_LOW"}
     data, model = await gemini_json(client, gemini_key, models, parts, **config)
@@ -255,7 +263,7 @@ async def analyze(
     return LetsplayResult(
         video=video,
         method=method,
-        transcript=transcript,
+        transcript=transcript or (str(data.get("transcript") or "").strip() or None),
         retelling=str(data["retelling"]).strip(),
         verdict=str(data["verdict"]).strip(),
         pros=_clean(data.get("pros")),
