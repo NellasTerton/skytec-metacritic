@@ -164,7 +164,9 @@ async def test_analyze_uses_transcript_when_available():
 
 async def test_analyze_falls_back_to_gemini_transcript_of_last_20_minutes():
     seen = []
-    replies = iter([ok({"transcript": "spoken   words\n here"}), ok(GOOD)])
+    plain = {"candidates": [{"content": {"parts": [{"text": "spoken   words\n here"}]}}]}
+    transcript_reply = httpx.Response(200, json=plain)
+    replies = iter([transcript_reply, ok(GOOD)])
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen.append(json.loads(request.content))
@@ -178,7 +180,8 @@ async def test_analyze_falls_back_to_gemini_transcript_of_last_20_minutes():
     assert clip["file_data"]["file_uri"] == "https://www.youtube.com/watch?v=abc"
     assert clip["video_metadata"] == {"start_offset": f"{91 * 60 - 1200}s", "end_offset": f"{91 * 60}s"}
     config = seen[0]["generationConfig"]
-    assert config["mediaResolution"] == "MEDIA_RESOLUTION_LOW" and config["maxOutputTokens"] == 16384
+    assert config["mediaResolution"] == "MEDIA_RESOLUTION_LOW" and config["maxOutputTokens"] == 32768
+    assert "responseMimeType" not in config  # расшифровка — обычным текстом, не JSON
     # 2-й запрос: заключение по тексту расшифровки.
     assert "spoken words here" in seen[1]["contents"][0]["parts"][0]["text"]
     assert result.method == "video" and result.transcript == "spoken words here"
@@ -196,3 +199,11 @@ def test_views_and_duration_format():
     assert format_views(2000000) == "2 млн просмотров"
     assert format_views(21) == "21 просмотр"
     assert format_duration(5465) == "1 ч 31 мин" and format_duration(2280) == "38 мин"
+
+
+async def test_gemini_json_skips_model_with_broken_json():
+    seen = []
+    broken = httpx.Response(200, json={"candidates": [{"content": {"parts": [{"text": '{"a": "unterminated'}]}}]})
+    transport = gemini_transport({"lite": broken, "flash": ok({"a": 1})}, seen)
+    async with httpx.AsyncClient(transport=transport) as client:
+        assert await gemini_json(client, "k", ["lite", "flash"], [{"text": "x"}]) == ({"a": 1}, "lite-x")

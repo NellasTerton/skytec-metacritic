@@ -189,8 +189,7 @@ RESULT_SCHEMA = (
 
 TRANSCRIBE_PROMPT = (
     "Дословно расшифруй ВСЮ речь блогера в этом отрезке летсплея, от первого до последнего слова, на языке "
-    "оригинала. Не пропускай и не сокращай фразы, не пересказывай. Без таймкодов. Ответ — строго JSON: "
-    '{"transcript": "..."}'
+    "оригинала. Не пропускай и не сокращай фразы, не пересказывай. Без таймкодов и пометок — только текст речи."
 )
 
 
@@ -205,19 +204,23 @@ def build_prompt(game_title: str, source: str) -> str:
     )
 
 
-async def gemini_json(
-    client: httpx.AsyncClient, api_key: str, models: list[str], parts: list[dict], **config
-) -> tuple[dict, str]:
-    """generateContent по цепочке моделей: при перегрузке (503) или лимите (429) — следующая модель."""
+async def gemini_generate(
+    client: httpx.AsyncClient, api_key: str, models: list[str], parts: list[dict], *, as_json: bool, **config
+) -> tuple[str, str]:
+    """generateContent по цепочке моделей: при перегрузке (503) или лимите (429) — следующая модель.
+
+    Возвращает (текст ответа, версия модели). Обрыв по лимиту токенов (MAX_TOKENS) для текста
+    не ошибка: расшифровка просто короче.
+    """
     errors = []
+    generation = {"temperature": 0.3, **config}
+    if as_json:
+        generation["responseMimeType"] = "application/json"
     for model in models:
         response = await client.post(
             f"{GEMINI_API}/{model}:generateContent",
             headers={"x-goog-api-key": api_key},
-            json={
-                "contents": [{"parts": parts}],
-                "generationConfig": {"responseMimeType": "application/json", "temperature": 0.3, **config},
-            },
+            json={"contents": [{"parts": parts}], "generationConfig": generation},
         )
         if response.status_code in (429, 500, 503):
             errors.append(f"{model}: HTTP {response.status_code}")
@@ -226,9 +229,32 @@ async def gemini_json(
             raise LetsplayError(f"Gemini {model} HTTP {response.status_code}: {response.text[:300]}")
         data = response.json()
         try:
-            text = data["candidates"][0]["content"]["parts"][-1]["text"]
-            return json.loads(text), data.get("modelVersion") or model
-        except (KeyError, IndexError, ValueError) as e:
+            candidate = data["candidates"][0]
+            text = "".join(part.get("text", "") for part in candidate["content"]["parts"])
+        except (KeyError, IndexError) as e:
+            errors.append(f"{model}: bad response ({e})")
+            continue
+        if text.strip():
+            return text, data.get("modelVersion") or model
+        errors.append(f"{model}: empty response ({candidate.get('finishReason')})")
+    raise LetsplayError("; ".join(errors) or "no Gemini models configured")
+
+
+async def gemini_json(
+    client: httpx.AsyncClient, api_key: str, models: list[str], parts: list[dict], **config
+) -> tuple[dict, str]:
+    """Короткий структурированный ответ (заключение). Невалидный JSON — пробуем следующую модель."""
+    errors = []
+    for i, model in enumerate(models):
+        try:
+            text, version = await gemini_generate(client, api_key, models[i : i + 1], parts, as_json=True, **config)
+            data = json.loads(text)
+            if isinstance(data, dict):
+                return data, version
+            errors.append(f"{model}: not a JSON object")
+        except LetsplayError as e:
+            errors.append(str(e))
+        except ValueError as e:
             errors.append(f"{model}: bad response ({e})")
     raise LetsplayError("; ".join(errors) or "no Gemini models configured")
 
@@ -250,9 +276,11 @@ async def transcribe_video_tail(client: httpx.AsyncClient, gemini_key: str, mode
         },
         {"text": TRANSCRIBE_PROMPT},
     ]
-    config = {"mediaResolution": "MEDIA_RESOLUTION_LOW", "temperature": 0, "maxOutputTokens": 16384}
-    data, _ = await gemini_json(client, gemini_key, models, parts, **config)
-    text = " ".join(str(data.get("transcript") or "").split())
+    # Длинный текст — обычным ответом, не JSON: в JSON-режиме модель на длинной расшифровке
+    # обрывает строку или дописывает мусор после объекта.
+    config = {"mediaResolution": "MEDIA_RESOLUTION_LOW", "temperature": 0, "maxOutputTokens": 32768}
+    raw, _ = await gemini_generate(client, gemini_key, models, parts, as_json=False, **config)
+    text = " ".join(raw.split())
     if not text:
         raise LetsplayError("Gemini returned an empty transcript")
     return text
