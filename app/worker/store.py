@@ -44,6 +44,18 @@ def summary_hashes(session: Session, slugs: list[str]) -> dict[str, dict[str, st
     return out
 
 
+def games_without_summaries(session: Session, min_reviews: int, limit: int) -> list[str]:
+    """Игры без единого резюме, у которых на основной платформе достаточно отзывов."""
+    has_summary = select(ReviewSummary.id).where(ReviewSummary.game_id == Game.id).exists()
+    stmt = (
+        select(Game.slug)
+        .where(~has_summary, (Game.critic_review_count >= min_reviews) | (Game.user_review_count >= min_reviews))
+        .order_by(Game.metascore.desc().nulls_last())
+        .limit(limit)
+    )
+    return list(session.scalars(stmt))
+
+
 def save_summaries(session: Session, slug: str, results: list[SummaryResult]) -> None:
     game = session.scalars(select(Game).where(Game.slug == slug)).one()
     existing = {s.kind: s for s in game.summaries}

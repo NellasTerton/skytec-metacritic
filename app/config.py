@@ -20,7 +20,7 @@ class Settings(BaseSettings):
 
     # LLM для резюме отзывов: любой из провайдеров, порядок = порядок фолбэка.
     groq_api_key: str | None = None
-    groq_model: str = "llama-3.3-70b-versatile"
+    groq_model: str = "openai/gpt-oss-120b"
     gemini_api_key: str | None = None
     gemini_model: str = "gemini-flash-lite-latest"
     llm_base_url: str | None = None  # любой другой OpenAI-совместимый провайдер

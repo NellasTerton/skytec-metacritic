@@ -10,7 +10,7 @@ from app.db import session_scope
 from app.llm import LLMClient, LLMError, providers_from_settings
 from app.metacritic import GameDetails, MetacriticClient
 from app.models import Run, RunItem
-from app.summaries import kinds_to_update, summarize
+from app.summaries import MIN_REVIEWS, kinds_to_update, summarize
 from app.worker import store
 from app.worker.selection import select_games
 
@@ -148,4 +148,54 @@ async def run_once(
     message = f"games {len(games)}/{len(sources)}, summaries {summaries.get('done', 0)}"
     _update_run(run_id, status="success", finished_at=store.now(), message=message, details={"summaries": summaries})
     log.info("run #%d finished: %s", run_id, message)
+    return run_id
+
+
+async def summarize_backlog(
+    limit: int, *, client: MetacriticClient | None = None, llm: LLMClient | None = None, trigger: str = "backfill"
+) -> int | None:
+    """Резюме для игр, которые уже лежат в БД без резюме (например, собраны до появления ключа LLM).
+
+    Если резюмировать нечего или нет LLM, прогон не создаётся — чтобы не засорять мониторинг.
+    """
+    settings = get_settings()
+    own_client, own_llm = client is None, llm is None
+    providers = providers_from_settings(settings) if llm is None else []
+    if llm is None and not providers:
+        log.info("summary backlog skipped: no LLM provider configured")
+        return None
+    with session_scope(serverless=False) as session:
+        slugs = store.games_without_summaries(session, MIN_REVIEWS, limit)
+        if not slugs:
+            log.info("summary backlog is empty")
+            return None
+        run = Run(trigger=trigger, status="running", phase="summaries", games_found=len(slugs))
+        run.heartbeat_at = store.now()
+        session.add(run)
+        session.flush()
+        run_id = run.id
+    log.info("run #%d: summary backlog of %d games", run_id, len(slugs))
+
+    llm = llm or LLMClient(providers)
+    client = client or MetacriticClient(concurrency=settings.metacritic_concurrency)
+    try:
+        results = await asyncio.gather(*(_fetch(client, slug) for slug in slugs))
+        games = [r for _, r in results if isinstance(r, GameDetails)]
+        _update_run(run_id, games_processed=len(games), games_failed=len(slugs) - len(games))
+        summaries = await _summarize(run_id, llm, games, limit)
+    except Exception as e:
+        _update_run(run_id, status="failed", finished_at=store.now(), message=f"{type(e).__name__}: {e}"[:2000])
+        raise
+    finally:
+        if own_client:
+            await client.aclose()
+        if own_llm and llm is not None:
+            await llm.aclose()
+    _update_run(
+        run_id,
+        status="success",
+        finished_at=store.now(),
+        message=f"summaries {summaries.get('done', 0)}/{len(slugs)}",
+        details={"summaries": summaries, "slugs": slugs},
+    )
     return run_id

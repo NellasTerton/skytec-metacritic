@@ -79,3 +79,21 @@ def test_providers_from_settings_order():
     settings = Settings(_env_file=None, groq_api_key="g", gemini_api_key="m")
     assert [p.name for p in providers_from_settings(settings)] == ["groq", "gemini"]
     assert providers_from_settings(Settings(_env_file=None)) == []
+
+
+def test_gpt_oss_gets_low_reasoning_effort():
+    [groq] = providers_from_settings(Settings(_env_file=None, groq_api_key="g", groq_model="openai/gpt-oss-120b"))
+    assert groq.extra == {"reasoning_effort": "low"}
+    [other] = providers_from_settings(Settings(_env_file=None, groq_api_key="g", groq_model="qwen/qwen3.8-27b"))
+    assert other.extra == {}
+
+
+async def test_model_extra_params_are_sent():
+    provider = Provider("a", "https://a.test/v1", "k", "m", {"reasoning_effort": "low"})
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert json.loads(request.content)["reasoning_effort"] == "low"
+        return completion("{}")
+
+    llm, _ = make(handler, providers=(provider,))
+    assert await llm.complete_json("s", "u") == ({}, "a/m")

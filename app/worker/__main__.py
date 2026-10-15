@@ -1,6 +1,7 @@
 """CLI воркера.
 
 python -m app.worker run --trigger schedule    прогон (пишет в БД)
+python -m app.worker summarize --limit 20      резюме для игр в БД, у которых их ещё нет
 python -m app.worker game elden-ring           карточка игры в JSON, без БД
 python -m app.worker new-releases              список New Releases, без БД
 """
@@ -32,6 +33,8 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     run_p = sub.add_parser("run", help="one worker run")
     run_p.add_argument("--trigger", default="manual")
+    sum_p = sub.add_parser("summarize", help="summaries for games in DB that have none")
+    sum_p.add_argument("--limit", type=int, default=20)
     game_p = sub.add_parser("game", help="print parsed game as JSON")
     game_p.add_argument("slug")
     sub.add_parser("new-releases", help="print New Releases")
@@ -44,6 +47,10 @@ def main(argv: list[str] | None = None) -> int:
         from app.worker.runner import run_once
 
         asyncio.run(run_once(args.trigger))
+    elif args.command == "summarize":
+        from app.worker.runner import summarize_backlog
+
+        asyncio.run(summarize_backlog(args.limit))
     elif args.command == "game":
         asyncio.run(_print_game(args.slug))
     elif args.command == "new-releases":

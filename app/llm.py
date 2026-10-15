@@ -19,7 +19,8 @@ from app.config import Settings
 
 log = logging.getLogger(__name__)
 
-MAX_SHORT_WAIT = 30.0
+# Минутные лимиты токенов (TPM) сбрасываются меньше чем за минуту — такое ждём.
+MAX_SHORT_WAIT = 65.0
 
 
 @dataclass
@@ -28,6 +29,7 @@ class Provider:
     base_url: str
     api_key: str = field(repr=False)
     model: str
+    extra: dict = field(default_factory=dict)  # параметры запроса, специфичные для модели
 
 
 class LLMError(Exception):
@@ -37,7 +39,11 @@ class LLMError(Exception):
 def providers_from_settings(settings: Settings) -> list[Provider]:
     providers = []
     if settings.groq_api_key:
-        providers.append(Provider("groq", "https://api.groq.com/openai/v1", settings.groq_api_key, settings.groq_model))
+        # Reasoning-модели gpt-oss: низкое усилие хватает для резюме и экономит минутный лимит токенов.
+        extra = {"reasoning_effort": "low"} if "gpt-oss" in settings.groq_model else {}
+        providers.append(
+            Provider("groq", "https://api.groq.com/openai/v1", settings.groq_api_key, settings.groq_model, extra)
+        )
     if settings.gemini_api_key:
         providers.append(
             Provider(
@@ -124,6 +130,7 @@ class LLMClient:
             "response_format": {"type": "json_object"},
             "temperature": 0.3,
             "max_tokens": max_tokens,
+            **provider.extra,
         }
         headers = {"Authorization": f"Bearer {provider.api_key}"}
         for attempt in range(4):

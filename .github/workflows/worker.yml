@@ -41,3 +41,5 @@ jobs:
       - run: pip install -r requirements-worker.txt
       - run: alembic upgrade head
       - run: python -m app.worker run --trigger "${{ github.event_name == 'schedule' && 'schedule' || inputs.trigger }}"
+      # Дозаполнение: резюме для игр, которые не успели получить его раньше (лимиты LLM, ключа не было).
+      - run: python -m app.worker summarize --limit 10
