@@ -32,6 +32,7 @@ alembic upgrade head
 python -m app.worker new-releases                    # без БД: список New Releases
 python -m app.worker game elden-ring                 # без БД: карточка игры в JSON
 python -m app.worker run                             # прогон с записью в БД
+python -m app.worker summarize --limit 20            # резюме для игр в БД, у которых их нет
 uvicorn app.main:app --reload                        # сайт на http://127.0.0.1:8000
 ```
 
@@ -47,6 +48,7 @@ python -m scripts.capture_fixtures   # обновить фикстуры
 ## Деплой
 
 - **Neon:** создать проект, `DATABASE_URL` (pooled) и `DATABASE_URL_UNPOOLED` (direct).
-- **GitHub Actions:** те же две строки в Settings → Secrets → Actions.
+- **GitHub Actions:** те же две строки и `GROQ_API_KEY` в Settings → Secrets → Actions.
+  Без ключа LLM воркер работает, но резюме отзывов не пишет.
 - **Vercel:** `DATABASE_URL` в переменных окружения проекта. В Deployment Protection
   отключить Vercel Authentication, иначе сайт будет закрыт логином.
