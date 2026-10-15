@@ -18,6 +18,8 @@ GitHub Actions (cron + workflow_dispatch)          Vercel (FastAPI)
 - `app/metacritic/` — клиент внутреннего API Metacritic (официального API нет). Как он
   устроен и где подвохи: [docs/metacritic-research.md](docs/metacritic-research.md).
 - `app/models.py`, `migrations/` — схема БД, Alembic.
+- `app/media.py` — трейлер с YouTube (поиск через yt-dlp, без API-ключа) и скриншоты из Steam
+  Store API: у Metacritic видео есть не у всех игр, а скриншотов нет вовсе.
 - `app/main.py` — сайт (Vercel находит `app` автоматически): список с поиском при вводе,
   фильтром по платформе и сортировкой, карточка игры с похожими играми, `/monitor` —
   мониторинг воркера в реальном времени и кнопка «Запустить сейчас».
@@ -35,6 +37,7 @@ python -m app.worker new-releases                    # без БД: список
 python -m app.worker game elden-ring                 # без БД: карточка игры в JSON
 python -m app.worker run                             # прогон с записью в БД
 python -m app.worker summarize --limit 20            # резюме для игр в БД, у которых их нет
+python -m app.worker media --limit 40                # трейлеры и скриншоты для игр без них
 uvicorn app.main:app --reload                        # сайт на http://127.0.0.1:8000
 ```
 
