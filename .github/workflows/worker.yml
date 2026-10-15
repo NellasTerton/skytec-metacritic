@@ -1,9 +1,9 @@
 name: worker
 
 on:
-  # Ежечасный запуск включим на этапе 3, когда появится логика выборки игр.
-  # schedule:
-  #   - cron: "17 * * * *"
+  # Раз в час; минута не нулевая — в начале часа очередь Actions самая длинная.
+  schedule:
+    - cron: "17 * * * *"
   workflow_dispatch:
     inputs:
       trigger:

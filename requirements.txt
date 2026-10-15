@@ -5,3 +5,4 @@ sqlalchemy>=2.0.40,<2.1
 psycopg[binary]>=3.2.10,<4
 pydantic-settings>=2.6,<3
 httpx>=0.28,<1
+tzdata>=2024.1  # zoneinfo на Windows без системной базы часовых поясов
