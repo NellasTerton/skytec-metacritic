@@ -18,7 +18,9 @@ GitHub Actions (cron + workflow_dispatch)          Vercel (FastAPI)
 - `app/metacritic/` — клиент внутреннего API Metacritic (официального API нет). Как он
   устроен и где подвохи: [docs/metacritic-research.md](docs/metacritic-research.md).
 - `app/models.py`, `migrations/` — схема БД, Alembic.
-- `app/main.py` — сайт (Vercel находит `app` автоматически).
+- `app/main.py` — сайт (Vercel находит `app` автоматически): список с поиском при вводе,
+  фильтром по платформе и сортировкой, карточка игры с похожими играми, `/monitor` —
+  мониторинг воркера в реальном времени и кнопка «Запустить сейчас».
 - `app/worker/` — воркер; запускается в GitHub Actions ([.github/workflows/worker.yml](.github/workflows/worker.yml)).
 - Почему так и какие у бесплатных тарифов лимиты: [docs/infrastructure.md](docs/infrastructure.md).
 
