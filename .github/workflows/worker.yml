@@ -1,0 +1,40 @@
+name: worker
+
+on:
+  # Ежечасный запуск включим на этапе 3, когда появится логика выборки игр.
+  # schedule:
+  #   - cron: "17 * * * *"
+  workflow_dispatch:
+    inputs:
+      trigger:
+        description: "Источник запуска (manual / web)"
+        default: manual
+
+# Не запускаем два прогона одновременно; новый ждёт окончания текущего.
+concurrency:
+  group: worker
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      DATABASE_URL_UNPOOLED: ${{ secrets.DATABASE_URL_UNPOOLED }}
+    steps:
+      - name: Check secrets
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::Secret DATABASE_URL is not set (Settings → Secrets and variables → Actions)"
+            exit 1
+          fi
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: .python-version
+          cache: pip
+          cache-dependency-path: requirements*.txt
+      - run: pip install -r requirements-worker.txt
+      - run: alembic upgrade head
+      - run: python -m app.worker run --trigger "${{ github.event_name == 'schedule' && 'schedule' || inputs.trigger }}"

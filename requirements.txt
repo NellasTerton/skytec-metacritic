@@ -1,0 +1,7 @@
+# Runtime сайта (Vercel ставит только этот файл).
+fastapi>=0.117,<1
+jinja2>=3.1,<4
+sqlalchemy>=2.0.40,<2.1
+psycopg[binary]>=3.2.10,<4
+pydantic-settings>=2.6,<3
+httpx>=0.28,<1

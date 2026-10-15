@@ -1,0 +1,10 @@
+line-length = 120
+target-version = "py314"
+extend-exclude = ["probe"]
+
+[lint]
+select = ["E", "F", "W", "I", "B", "UP", "ASYNC", "BLE", "RUF"]
+ignore = ["RUF001", "RUF002", "RUF003"]  # кириллица в строках и комментариях — норма
+
+[lint.per-file-ignores]
+"migrations/versions/*" = ["E501"]

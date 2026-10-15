@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Metacritic Games{% endblock %}</title>
+  <style>
+    :root { color-scheme: light dark; --fg: #1a1a1a; --bg: #fafafa; --muted: #666; --card: #fff; --line: #e3e3e3; }
+    @media (prefers-color-scheme: dark) {
+      :root { --fg: #eee; --bg: #141414; --muted: #999; --card: #1d1d1d; --line: #2c2c2c; }
+    }
+    body { margin: 0; font: 15px/1.5 system-ui, sans-serif; color: var(--fg); background: var(--bg); }
+    main { max-width: 1100px; margin: 0 auto; padding: 24px 16px; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 16px; }
+    .muted { color: var(--muted); }
+  </style>
+</head>
+<body>
+  <main>{% block content %}{% endblock %}</main>
+</body>
+</html>

@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Metacritic Games</h1>
+<div class="card">
+  {% if not stats.configured %}
+    <p>База данных не подключена: задайте <code>DATABASE_URL</code>.</p>
+  {% else %}
+    <p>Игр в базе: <strong>{{ stats.games }}</strong></p>
+    {% if stats.last_run %}
+      <p class="muted">Последний прогон #{{ stats.last_run.id }}: {{ stats.last_run.status }},
+        {{ stats.last_run.started_at.strftime("%Y-%m-%d %H:%M UTC") }}, найдено {{ stats.last_run.games_found }}</p>
+    {% else %}
+      <p class="muted">Воркер ещё не запускался.</p>
+    {% endif %}
+  {% endif %}
+</div>
+{% endblock %}
