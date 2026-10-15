@@ -81,7 +81,9 @@ def platform_options(session: Session, *, scored_only: bool = True) -> list[tupl
 
 def get_game(session: Session, slug: str) -> Game | None:
     return session.scalars(
-        select(Game).where(Game.slug == slug).options(selectinload(Game.platforms), selectinload(Game.summaries))
+        select(Game)
+        .where(Game.slug == slug)
+        .options(selectinload(Game.platforms), selectinload(Game.summaries), selectinload(Game.letsplay))
     ).one_or_none()
 
 
@@ -211,3 +213,21 @@ def plural(n: int, one: str, few: str, many: str) -> str:
     if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14:
         return few
     return many
+
+
+def format_views(n: int | None) -> str:
+    """443990 → «444 тыс. просмотров», 1234567 → «1,2 млн просмотров»."""
+    n = n or 0
+    if n >= 1_000_000:
+        value = f"{n / 1_000_000:.1f}".rstrip("0").rstrip(".").replace(".", ",")
+        return f"{value} млн просмотров"
+    if n >= 1_000:
+        return f"{round(n / 1000)} тыс. просмотров"
+    return f"{n} {plural(n, 'просмотр', 'просмотра', 'просмотров')}"
+
+
+def format_duration(seconds: int | None) -> str:
+    """5460 → «1 ч 31 мин», 2280 → «38 мин»."""
+    minutes = round((seconds or 0) / 60)
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours} ч {minutes} мин" if hours else f"{minutes} мин"

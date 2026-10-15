@@ -6,9 +6,10 @@ from datetime import UTC, date, datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.letsplay import LetsplayResult, Video
 from app.media import Media
 from app.metacritic import GameDetails
-from app.models import CrawlState, Game, GamePlatform, ReviewSummary, RunItem
+from app.models import CrawlState, Game, GamePlatform, Letsplay, ReviewSummary, RunItem
 from app.summaries import SummaryResult
 from app.worker.selection import CrawlCursor
 
@@ -142,3 +143,53 @@ def save_media(session: Session, slug: str, media: Media) -> None:
     game.media = media.as_json()
     game.steam_appid = media.steam_appid
     game.media_updated_at = now()
+
+
+LETSPLAY_RETRY = timedelta(days=1)
+
+
+def games_needing_letsplay(session: Session, limit: int) -> list[tuple[str, str, Video | None]]:
+    """Игры с оценками без летсплея; упавшие — не чаще раза в сутки, с уже найденным роликом."""
+    scored = Game.metascore.is_not(None) | Game.userscore.is_not(None)
+    retry = (Letsplay.status == "failed") & (Letsplay.checked_at < now() - LETSPLAY_RETRY)
+    rows = session.execute(
+        select(Game.slug, Game.title, Letsplay)
+        .outerjoin(Letsplay, Letsplay.game_id == Game.id)
+        .where(scored, Letsplay.id.is_(None) | retry)
+        .order_by(Game.metascore.desc().nulls_last(), Game.userscore.desc().nulls_last())
+        .limit(limit)
+    ).all()
+    out = []
+    for slug, title, row in rows:
+        video = None
+        if row is not None and row.video_id:
+            video = Video(
+                row.video_id, row.video_title or "", row.channel or "", row.view_count or 0, row.duration_s or 0
+            )
+        out.append((slug, title, video))
+    return out
+
+
+def save_letsplay(
+    session: Session,
+    slug: str,
+    status: str,
+    *,
+    result: LetsplayResult | None = None,
+    video: Video | None = None,
+    error: str | None = None,
+) -> None:
+    game = session.scalars(select(Game).where(Game.slug == slug)).one()
+    row = game.letsplay or Letsplay()
+    game.letsplay = row
+    row.status = status
+    row.error = error
+    row.checked_at = now()
+    video = result.video if result else video
+    if video:
+        row.video_id, row.video_title, row.channel = video.id, video.title, video.channel
+        row.view_count, row.duration_s = video.view_count, video.duration_s
+    if result:
+        row.method, row.transcript, row.model = result.method, result.transcript, result.model
+        row.retelling, row.verdict, row.liked = result.retelling, result.verdict, result.liked
+        row.pros, row.cons = result.pros, result.cons

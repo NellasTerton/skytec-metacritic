@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     llm_model: str | None = None
     summaries_per_run: int = 20
 
+    # Летсплеи (доп. часть 1 ТЗ): поиск — YouTube Data API, вывод — Gemini.
+    youtube_api_key: str | None = None
+    letsplay_models: str = "gemini-flash-lite-latest,gemini-flash-latest"  # порядок = фолбэк при 503/429
+
     # Запуск воркера с сайта: внешний cron дёргает /api/cron с CRON_SECRET, сайт вызывает
     # workflow_dispatch fine-grained токеном (только этот репозиторий, Actions: read & write).
     cron_secret: str | None = None

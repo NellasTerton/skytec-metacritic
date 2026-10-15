@@ -1,0 +1,46 @@
+{# Летсплей: ролик блогера, пересказ его речи и заключение. Расшифровка — под спойлером. #}
+{% set lp = game.letsplay %}
+{% if lp and lp.status == 'done' %}
+<div class="section">
+  <h2>Летсплей</h2>
+  <div class="card letsplay">
+    <div class="lp-video">
+      <div class="player lite" data-embed="https://www.youtube-nocookie.com/embed/{{ lp.video_id }}">
+        <button class="poster" type="button" style="background-image: url('https://i.ytimg.com/vi/{{ lp.video_id }}/hqdefault.jpg')"
+          aria-label="Смотреть летсплей: {{ lp.video_title }}">
+          <span class="play"><svg class="icon"><use href="#i-play"/></svg></span>
+          <span class="caption">{{ lp.video_title }}</span>
+        </button>
+      </div>
+      <p class="lp-meta muted">
+        <a href="https://www.youtube.com/watch?v={{ lp.video_id }}" target="_blank" rel="noopener">{{ lp.channel }} ↗</a>
+        · {{ lp.view_count | views }} · {{ lp.duration_s | duration }}
+      </p>
+    </div>
+    <div class="lp-text">
+      {% if lp.liked is not none %}
+        <span class="lp-badge {{ 'good' if lp.liked else 'bad' }}">{{ 'Блогеру понравилось' if lp.liked else 'Блогеру не понравилось' }}</span>
+      {% endif %}
+      <h3>Что рассказывает блогер</h3>
+      <p>{{ lp.retelling }}</p>
+      <h3>Заключение</h3>
+      <p>{{ lp.verdict }}</p>
+      {% if lp.pros %}<ul class="pros">{% for x in lp.pros %}<li>{{ x }}</li>{% endfor %}</ul>{% endif %}
+      {% if lp.cons %}<ul class="cons">{% for x in lp.cons %}<li>{{ x }}</li>{% endfor %}</ul>{% endif %}
+    </div>
+    {% if lp.transcript %}
+    <details class="transcript">
+      <summary>Расшифровка речи блогера <span class="muted">(англ., {{ lp.transcript.split() | length }} слов)</span></summary>
+      <div class="transcript-body">{{ lp.transcript }}</div>
+    </details>
+    {% endif %}
+  </div>
+</div>
+<script>
+document.querySelectorAll('.player.lite').forEach((player) => player.addEventListener('click', (e) => {
+  if (!e.target.closest('.poster')) return;
+  const src = `${player.dataset.embed}?autoplay=1&rel=0&playsinline=1`;
+  player.innerHTML = `<iframe src="${src}" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>`;
+}));
+</script>
+{% endif %}

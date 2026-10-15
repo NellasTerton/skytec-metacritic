@@ -24,6 +24,8 @@ jobs:
       # LLM для резюме: без ключей шаг резюме пропускается.
       GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      # Летсплеи: поиск роликов (YouTube Data API); вывод делает Gemini по GEMINI_API_KEY.
+      YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
     steps:
       - name: Check secrets
         run: |
@@ -44,3 +46,5 @@ jobs:
       - run: python -m app.worker summarize --limit 10
       # Трейлеры (YouTube) и скриншоты (Steam) для игр без них или с устаревшими (старше 7 дней).
       - run: python -m app.worker media --limit 40
+      # Летсплеи: по 3 игры с оценками за час — укладываемся в 100 поисков YouTube Data API в сутки.
+      - run: python -m app.worker letsplays --limit 3

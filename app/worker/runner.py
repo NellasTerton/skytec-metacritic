@@ -9,6 +9,7 @@ import httpx
 
 from app.config import get_settings
 from app.db import session_scope
+from app.letsplay import LetsplayError, QuotaExceeded, analyze, fetch_transcript, find_letsplay
 from app.llm import LLMClient, LLMError, providers_from_settings
 from app.media import collect_media
 from app.metacritic import GameDetails, MetacriticClient
@@ -259,4 +260,64 @@ async def media_backlog(limit: int, *, trigger: str = "backfill") -> int | None:
         games_processed=stats["done"],
         message=f"медиа {stats['done']}/{len(todo)}: видео {stats['videos']}, скриншоты {stats['screenshots']}",
     )
+    return run_id
+
+
+async def letsplay_backlog(limit: int, *, trigger: str = "backfill") -> int | None:
+    """Летсплеи для игр с оценками: поиск ролика, расшифровка, заключение Gemini (по одной игре за раз)."""
+    settings = get_settings()
+    if not settings.youtube_api_key or not settings.gemini_api_key:
+        log.info("letsplays skipped: YOUTUBE_API_KEY or GEMINI_API_KEY is not set")
+        return None
+    models = [m.strip() for m in settings.letsplay_models.split(",") if m.strip()]
+    with session_scope(serverless=False) as session:
+        todo = store.games_needing_letsplay(session, limit)
+        if not todo:
+            log.info("letsplay backlog is empty")
+            return None
+        run = Run(trigger=trigger, status="running", phase="letsplays", games_found=len(todo))
+        run.heartbeat_at = store.now()
+        session.add(run)
+        session.flush()
+        run_id = run.id
+
+    stats = {"needed": len(todo), "done": 0, "not_found": 0, "failed": 0, "captions": 0, "video": 0}
+    async with httpx.AsyncClient(timeout=240, headers={"User-Agent": BROWSER_UA}) as http:
+        for i, (slug, title, video) in enumerate(todo, 1):
+            _update_run(run_id, message=f"летсплей {i}/{len(todo)}: {slug}", details={"letsplays": stats})
+            try:
+                video = video or await find_letsplay(http, settings.youtube_api_key, title)
+                if video is None:
+                    with session_scope(serverless=False) as session:
+                        store.save_letsplay(session, slug, "not_found")
+                    stats["not_found"] += 1
+                    continue
+                transcript = await fetch_transcript(http, video)
+                result = await analyze(http, settings.gemini_api_key, models, title, video, transcript)
+            except QuotaExceeded as e:
+                stats["stopped"] = "YouTube Data API quota exceeded"
+                log.warning("run #%d: %s", run_id, e)
+                break
+            except (LetsplayError, httpx.HTTPError) as e:
+                with session_scope(serverless=False) as session:
+                    store.save_letsplay(session, slug, "failed", video=video, error=f"{type(e).__name__}: {e}"[:2000])
+                stats["failed"] += 1
+                log.warning("run #%d: letsplay for %s failed: %s", run_id, slug, e)
+                continue
+            with session_scope(serverless=False) as session:
+                store.save_letsplay(session, slug, "done", result=result)
+            stats["done"] += 1
+            stats[result.method] += 1
+            log.info("run #%d: letsplay %s -> %s (%s, %s)", run_id, slug, video.id, result.method, result.model)
+
+    _update_run(
+        run_id,
+        status="success",
+        finished_at=store.now(),
+        games_processed=stats["done"] + stats["not_found"],
+        games_failed=stats["failed"],
+        message=f"летсплеи: {stats['done']} готово, {stats['not_found']} не найдено, {stats['failed']} ошибок",
+        details={"letsplays": stats},
+    )
+    log.info("run #%d letsplays: %s", run_id, stats)
     return run_id

@@ -80,6 +80,7 @@ class Game(Base):
         back_populates="game", cascade="all, delete-orphan", order_by="GamePlatform.is_lead.desc()"
     )
     summaries: Mapped[list[ReviewSummary]] = relationship(back_populates="game", cascade="all, delete-orphan")
+    letsplay: Mapped[Letsplay | None] = relationship(back_populates="game", cascade="all, delete-orphan")
 
     __table_args__ = (
         Index("ix_games_metascore", "metascore"),
@@ -130,6 +131,36 @@ class ReviewSummary(Base):
     game: Mapped[Game] = relationship(back_populates="summaries")
 
     __table_args__ = (UniqueConstraint("game_id", "kind"),)
+
+
+class Letsplay(Base):
+    """Летсплей игры: ролик, расшифровка речи блогера и заключение по ней.
+
+    status: done | not_found (ролика нет — больше не ищем) | failed (повторим позже).
+    """
+
+    __tablename__ = "letsplays"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    game_id: Mapped[int] = mapped_column(ForeignKey("games.id", ondelete="CASCADE"), unique=True)
+    status: Mapped[str] = mapped_column(String(16))
+    video_id: Mapped[str | None] = mapped_column(String(32))
+    video_title: Mapped[str | None] = mapped_column(Text)
+    channel: Mapped[str | None] = mapped_column(Text)
+    view_count: Mapped[int | None] = mapped_column(BigInteger)
+    duration_s: Mapped[int | None] = mapped_column(Integer)
+    method: Mapped[str | None] = mapped_column(String(16))  # captions | video
+    transcript: Mapped[str | None] = mapped_column(Text)
+    retelling: Mapped[str | None] = mapped_column(Text)
+    verdict: Mapped[str | None] = mapped_column(Text)
+    pros: Mapped[list[str]] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
+    cons: Mapped[list[str]] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
+    liked: Mapped[bool | None] = mapped_column(Boolean)
+    model: Mapped[str | None] = mapped_column(String(128))
+    error: Mapped[str | None] = mapped_column(Text)
+    checked_at: Mapped[datetime] = _updated()
+
+    game: Mapped[Game] = relationship(back_populates="letsplay")
 
 
 class Run(Base):

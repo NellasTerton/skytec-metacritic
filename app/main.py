@@ -26,6 +26,8 @@ app = FastAPI(title="Metacritic Games", docs_url="/api/docs", openapi_url="/api/
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 templates.env.filters["short_platform"] = short_platform
 templates.env.filters["plural"] = queries.plural
+templates.env.filters["views"] = queries.format_views
+templates.env.filters["duration"] = queries.format_duration
 templates.env.globals["page_window"] = queries.page_window
 templates.env.globals["page_size"] = queries.PAGE_SIZE
 templates.env.filters["initials"] = lambda title: "".join(w[0] for w in (title or "?").split()[:2]).upper()
