@@ -14,6 +14,7 @@ from app.letsplay import (
     iso_duration_seconds,
     pick_letsplay,
     transcript_from_json3,
+    video_clips,
 )
 from app.queries import format_duration, format_views
 
@@ -125,6 +126,7 @@ def gemini_transport(responses: dict[str, httpx.Response], seen: list):
 GOOD = {
     "retelling": "Блогер в восторге.",
     "verdict": "Понравилась.",
+    "quotes": ["This might be the most unique concept", " ", "Worth it", "extra", "extra 2"],
     "pros": ["атмосфера", "", "стиль"],
     "cons": ["перезарядка"],
     "liked": True,
@@ -162,29 +164,27 @@ async def test_analyze_uses_transcript_when_available():
     assert result.method == "captions" and result.pros == ["атмосфера", "стиль"] and result.liked is True
 
 
-async def test_analyze_falls_back_to_gemini_transcript_of_last_20_minutes():
+def test_video_clips():
+    # 91 минута: начало 5 мин, середина 5 мин, конец 10 мин.
+    assert video_clips(91 * 60) == [(0, 300), (2580, 2880), (4860, 5460)]
+    assert video_clips(15 * 60) == [(0, 900)]  # короткий ролик — целиком
+    assert sum(b - a for a, b in video_clips(153 * 60)) == 20 * 60
+
+
+async def test_analyze_without_captions_watches_three_clips():
     seen = []
-    plain = {"candidates": [{"content": {"parts": [{"text": "spoken   words\n here"}]}}]}
-    transcript_reply = httpx.Response(200, json=plain)
-    replies = iter([transcript_reply, ok(GOOD)])
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        seen.append(json.loads(request.content))
-        return next(replies)
-
     video = v("abc", "Game - Let's Play", 1, 91)
-    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+    async with httpx.AsyncClient(transport=gemini_transport({"lite": ok(GOOD)}, seen)) as client:
         result = await analyze(client, "k", ["lite"], "Game", video, None)
-    # 1-й запрос: расшифровка видео по ссылке, последние 20 минут.
-    clip = seen[0]["contents"][0]["parts"][0]
-    assert clip["file_data"]["file_uri"] == "https://www.youtube.com/watch?v=abc"
-    assert clip["video_metadata"] == {"start_offset": f"{91 * 60 - 1200}s", "end_offset": f"{91 * 60}s"}
-    config = seen[0]["generationConfig"]
-    assert config["mediaResolution"] == "MEDIA_RESOLUTION_LOW" and config["maxOutputTokens"] == 32768
-    assert "responseMimeType" not in config  # расшифровка — обычным текстом, не JSON
-    # 2-й запрос: заключение по тексту расшифровки.
-    assert "spoken words here" in seen[1]["contents"][0]["parts"][0]["text"]
-    assert result.method == "video" and result.transcript == "spoken words here"
+    assert len(seen) == 1  # один запрос: пересказ, заключение и цитаты сразу
+    parts = seen[0][1]["contents"][0]["parts"]
+    clips = [(p["video_metadata"]["start_offset"], p["video_metadata"]["end_offset"]) for p in parts[:-1]]
+    assert clips == [("0s", "300s"), ("2580s", "2880s"), ("4860s", "5460s")]
+    assert all(p["file_data"]["file_uri"] == "https://www.youtube.com/watch?v=abc" for p in parts[:-1])
+    assert "цитаты" in parts[-1]["text"]
+    assert seen[0][1]["generationConfig"]["mediaResolution"] == "MEDIA_RESOLUTION_LOW"
+    assert result.method == "video" and result.transcript is None  # без субтитров полной расшифровки нет
+    assert result.quotes == ["This might be the most unique concept", "Worth it", "extra"]
 
 
 async def test_analyze_rejects_empty_answer():

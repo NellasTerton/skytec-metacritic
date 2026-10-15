@@ -193,3 +193,4 @@ def save_letsplay(
         row.method, row.transcript, row.model = result.method, result.transcript, result.model
         row.retelling, row.verdict, row.liked = result.retelling, result.verdict, result.liked
         row.pros, row.cons = result.pros, result.cons
+        row.quotes = result.quotes

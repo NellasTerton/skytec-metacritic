@@ -4,8 +4,9 @@
    в сутки на проект, поэтому ищем один раз на игру и только для игр с оценками).
 2. Расшифровка — автосубтитры YouTube через yt-dlp: официальный API отдаёт субтитры только
    владельцу ролика. Текст 90-минутного ролика — ~14 тыс. токенов, Gemini читает его целиком.
-3. Если субтитров нет (или YouTube не отдал их облачному IP) — Gemini смотрит сам ролик по ссылке,
-   последние 20 минут: там обычно итоговое мнение блогера.
+3. Если субтитров нет (YouTube не отдаёт их облачным IP — GitHub Actions, Vercel), Gemini смотрит
+   сам ролик по ссылке: начало, середину и конец, 20 минут в сумме. Расшифровку видео моделью не
+   делаем — на длинном аудио Flash-Lite выдаёт обрывки и зацикливается; вместо неё — цитаты.
 """
 
 import asyncio
@@ -23,7 +24,6 @@ log = logging.getLogger(__name__)
 YOUTUBE_API = "https://www.googleapis.com/youtube/v3"
 GEMINI_API = "https://generativelanguage.googleapis.com/v1beta/models"
 MIN_MINUTES, MAX_MINUTES = 15, 180
-VIDEO_TAIL_SECONDS = 20 * 60
 MAX_TRANSCRIPT_CHARS = 400_000
 # Не летсплеи: трейлеры, обзоры, интервью и т.п.
 EXCLUDE_WORDS = (
@@ -61,6 +61,7 @@ class LetsplayResult:
     transcript: str | None
     retelling: str
     verdict: str
+    quotes: list[str] = field(default_factory=list)
     pros: list[str] = field(default_factory=list)
     cons: list[str] = field(default_factory=list)
     liked: bool | None = None
@@ -183,39 +184,42 @@ async def fetch_transcript(client: httpx.AsyncClient, video: Video) -> str | Non
 # --- Gemini ---------------------------------------------------------------------------------
 
 RESULT_SCHEMA = (
-    '{"retelling": "...", "verdict": "...", "pros": ["до 4 пунктов"], "cons": ["до 4 пунктов"], "liked": true}'
-)
-
-
-TRANSCRIBE_PROMPT = (
-    "Дословно расшифруй ВСЮ речь блогера в этом отрезке летсплея, от первого до последнего слова, на языке "
-    "оригинала. Не пропускай и не сокращай фразы, не пересказывай. Без таймкодов и пометок — только текст речи."
+    '{"retelling": "...", "verdict": "...", "quotes": ["2–3 дословные цитаты на языке оригинала"], '
+    '"pros": ["до 4 пунктов"], "cons": ["до 4 пунктов"], "liked": true}'
 )
 
 
 def build_prompt(game_title: str, source: str) -> str:
     return (
         f"Это {source} летсплея игры «{game_title}»: блогер играет и комментирует вслух.\n"
-        "1. Перескажи по-русски, что блогер говорит об игре по ходу прохождения: что впечатляет, что "
-        "раздражает, с чем сравнивает. Это пересказ его речи, а не описание картинки. 5–7 предложений.\n"
+        "1. Перескажи по-русски, что блогер говорит об игре: что впечатляет, что раздражает, с чем "
+        "сравнивает. Это пересказ его речи, а не описание картинки. 5–7 предложений.\n"
         "2. Сделай заключение: понравилась ли игра блогеру и кому она подойдёт. Особенно учитывай его "
-        "итоговые слова.\n"
-        "Опирайся только на текст, ничего не придумывай. Ответ — строго JSON:\n" + RESULT_SCHEMA
+        "итоговые слова в конце.\n"
+        "3. Приведи 2–3 короткие дословные цитаты блогера об игре на языке оригинала — только то, что он "
+        "действительно сказал.\n"
+        "Опирайся только на материал ролика, ничего не придумывай. Ответ — строго JSON:\n" + RESULT_SCHEMA
     )
 
 
-async def gemini_generate(
-    client: httpx.AsyncClient, api_key: str, models: list[str], parts: list[dict], *, as_json: bool, **config
-) -> tuple[str, str]:
-    """generateContent по цепочке моделей: при перегрузке (503) или лимите (429) — следующая модель.
+def video_clips(duration_s: int) -> list[tuple[int, int]]:
+    """Фрагменты для Gemini: начало 5 мин, середина 5 мин, конец 10 мин — всего 20 минут.
 
-    Возвращает (текст ответа, версия модели). Обрыв по лимиту токенов (MAX_TOKENS) для текста
-    не ошибка: расшифровка просто короче.
+    Мнение блогера разбросано по всему ролику, а явный итог обычно звучит в конце; три куска
+    дают и то, и другое за ту же цену, что один 20-минутный. Ролик короче 20 минут — целиком.
     """
+    if duration_s <= 20 * 60:
+        return [(0, duration_s)]
+    middle = duration_s // 2
+    return [(0, 5 * 60), (middle - 150, middle + 150), (duration_s - 10 * 60, duration_s)]
+
+
+async def gemini_json(
+    client: httpx.AsyncClient, api_key: str, models: list[str], parts: list[dict], **config
+) -> tuple[dict, str]:
+    """generateContent по цепочке моделей: при перегрузке (503), лимите (429) или битом JSON — следующая."""
     errors = []
-    generation = {"temperature": 0.3, **config}
-    if as_json:
-        generation["responseMimeType"] = "application/json"
+    generation = {"responseMimeType": "application/json", "temperature": 0.3, **config}
     for model in models:
         response = await client.post(
             f"{GEMINI_API}/{model}:generateContent",
@@ -229,84 +233,51 @@ async def gemini_generate(
             raise LetsplayError(f"Gemini {model} HTTP {response.status_code}: {response.text[:300]}")
         data = response.json()
         try:
-            candidate = data["candidates"][0]
-            text = "".join(part.get("text", "") for part in candidate["content"]["parts"])
-        except (KeyError, IndexError) as e:
+            text = "".join(part.get("text", "") for part in data["candidates"][0]["content"]["parts"])
+            result = json.loads(text)
+        except (KeyError, IndexError, ValueError) as e:
             errors.append(f"{model}: bad response ({e})")
             continue
-        if text.strip():
-            return text, data.get("modelVersion") or model
-        errors.append(f"{model}: empty response ({candidate.get('finishReason')})")
+        if isinstance(result, dict):
+            return result, data.get("modelVersion") or model
+        errors.append(f"{model}: not a JSON object")
     raise LetsplayError("; ".join(errors) or "no Gemini models configured")
 
 
-async def gemini_json(
-    client: httpx.AsyncClient, api_key: str, models: list[str], parts: list[dict], **config
-) -> tuple[dict, str]:
-    """Короткий структурированный ответ (заключение). Невалидный JSON — пробуем следующую модель."""
-    errors = []
-    for i, model in enumerate(models):
-        try:
-            text, version = await gemini_generate(client, api_key, models[i : i + 1], parts, as_json=True, **config)
-            data = json.loads(text)
-            if isinstance(data, dict):
-                return data, version
-            errors.append(f"{model}: not a JSON object")
-        except LetsplayError as e:
-            errors.append(str(e))
-        except ValueError as e:
-            errors.append(f"{model}: bad response ({e})")
-    raise LetsplayError("; ".join(errors) or "no Gemini models configured")
-
-
-def _clean(items) -> list[str]:
-    return [str(x).strip() for x in items or [] if str(x).strip()][:4] if isinstance(items, list) else []
-
-
-async def transcribe_video_tail(client: httpx.AsyncClient, gemini_key: str, models: list[str], video: Video) -> str:
-    """Расшифровка речи последних 20 минут силами Gemini — когда субтитры недоступны.
-
-    Отдельным запросом: вместе с анализом в одном ответе модель сокращает расшифровку до пары абзацев.
-    """
-    start = max(0, video.duration_s - VIDEO_TAIL_SECONDS)
-    parts = [
-        {
-            "file_data": {"file_uri": video.url, "mime_type": "video/*"},
-            "video_metadata": {"start_offset": f"{start}s", "end_offset": f"{video.duration_s}s"},
-        },
-        {"text": TRANSCRIBE_PROMPT},
-    ]
-    # Длинный текст — обычным ответом, не JSON: в JSON-режиме модель на длинной расшифровке
-    # обрывает строку или дописывает мусор после объекта.
-    config = {"mediaResolution": "MEDIA_RESOLUTION_LOW", "temperature": 0, "maxOutputTokens": 32768}
-    raw, _ = await gemini_generate(client, gemini_key, models, parts, as_json=False, **config)
-    text = " ".join(raw.split())
-    if not text:
-        raise LetsplayError("Gemini returned an empty transcript")
-    return text
+def _clean(items, limit: int = 4) -> list[str]:
+    return [str(x).strip() for x in items or [] if str(x).strip()][:limit] if isinstance(items, list) else []
 
 
 async def analyze(
     client: httpx.AsyncClient, gemini_key: str, models: list[str], game_title: str, video: Video, transcript: str | None
 ) -> LetsplayResult:
-    """Речь блогера → текст → заключение. Текст — из субтитров YouTube или, если их нет, от Gemini по видео."""
-    method = "captions"
-    source = "расшифровка речи из"
-    if not transcript:
+    """Есть субтитры — Gemini читает весь текст. Нет — смотрит три фрагмента ролика по ссылке."""
+    if transcript:
+        method = "captions"
+        parts = [{"text": build_prompt(game_title, "расшифровка речи из") + "\n\nРасшифровка:\n" + transcript}]
+        config = {}
+    else:
         method = "video"
-        source = "расшифровка речи из последних 20 минут"
-        transcript = await transcribe_video_tail(client, gemini_key, models, video)
-    prompt = build_prompt(game_title, source) + "\n\nРасшифровка:\n" + transcript
-    data, model = await gemini_json(client, gemini_key, models, [{"text": prompt}])
+        parts = [
+            {
+                "file_data": {"file_uri": video.url, "mime_type": "video/*"},
+                "video_metadata": {"start_offset": f"{start}s", "end_offset": f"{end}s"},
+            }
+            for start, end in video_clips(video.duration_s)
+        ]
+        parts.append({"text": build_prompt(game_title, "фрагменты (начало, середина и конец)")})
+        config = {"mediaResolution": "MEDIA_RESOLUTION_LOW"}
+    data, model = await gemini_json(client, gemini_key, models, parts, **config)
     if not str(data.get("retelling", "")).strip() or not str(data.get("verdict", "")).strip():
         raise LetsplayError("Gemini returned an empty retelling or verdict")
     liked = data.get("liked")
     return LetsplayResult(
         video=video,
         method=method,
-        transcript=transcript,
+        transcript=transcript,  # полная расшифровка — только из настоящих субтитров
         retelling=str(data["retelling"]).strip(),
         verdict=str(data["verdict"]).strip(),
+        quotes=_clean(data.get("quotes"), limit=3),
         pros=_clean(data.get("pros")),
         cons=_clean(data.get("cons")),
         liked=liked if isinstance(liked, bool) else None,

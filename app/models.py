@@ -153,6 +153,7 @@ class Letsplay(Base):
     transcript: Mapped[str | None] = mapped_column(Text)
     retelling: Mapped[str | None] = mapped_column(Text)
     verdict: Mapped[str | None] = mapped_column(Text)
+    quotes: Mapped[list[str]] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
     pros: Mapped[list[str]] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
     cons: Mapped[list[str]] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
     liked: Mapped[bool | None] = mapped_column(Boolean)

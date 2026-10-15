@@ -81,6 +81,7 @@ def test_game_card_renders_letsplay(monkeypatch):
         verdict="Игра понравилась.",
         pros=["атмосфера"],
         cons=["перезарядка"],
+        quotes=["It's like if Silent Hill was a Metroidvania game."],
         liked=True,
     )
     monkeypatch.setattr(main, "session_scope", scope)
@@ -91,3 +92,8 @@ def test_game_card_renders_letsplay(monkeypatch):
     assert "1 ч 31 мин" in html and "Блогеру понравилось" in html
     assert "Расшифровка речи блогера" in html and "horror games" in html
     assert "youtube-nocookie.com/embed/wiM8ZLMHIYM" in html
+    assert "Цитаты блогера" in html and "Silent Hill was a Metroidvania" in html
+    # Режим «по видео»: полной расшифровки нет — спойлер не показываем.
+    game.letsplay.method, game.letsplay.transcript = "video", None
+    html = TestClient(main.app).get("/game/game-1").text
+    assert "Расшифровка речи блогера" not in html and "Цитаты блогера" in html
