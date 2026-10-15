@@ -15,11 +15,11 @@ def test_index_without_db(monkeypatch):
     monkeypatch.delenv("DATABASE_URL", raising=False)
     response = TestClient(app).get("/")
     assert response.status_code == 200
-    assert "DATABASE_URL" in response.text
+    assert "временно недоступен" in response.text
 
 
 @requires_db
 def test_health_with_db():
     response = TestClient(app).get("/api/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "db": "ok", "migration": "0001"}
+    assert response.json() == {"status": "ok", "db": "ok", "migration": "0002"}
