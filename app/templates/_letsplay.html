@@ -29,7 +29,10 @@
       {% if lp.cons %}<ul class="cons">{% for x in lp.cons %}<li>{{ x }}</li>{% endfor %}</ul>{% endif %}
       {% if lp.quotes %}
       <h3>Цитаты блогера</h3>
-      {% for q in lp.quotes %}<blockquote class="lp-quote">«{{ q }}»</blockquote>{% endfor %}
+      {% for q in lp.quotes %}
+        {% set text = q.text if q is mapping else q %}
+        <blockquote class="lp-quote">«{{ text }}»{% if q is mapping and q.ru %}<span class="lp-quote-ru">{{ q.ru }}</span>{% endif %}</blockquote>
+      {% endfor %}
       {% endif %}
     </div>
     {# Полная расшифровка — только из настоящих субтитров YouTube. #}

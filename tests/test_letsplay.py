@@ -126,7 +126,13 @@ def gemini_transport(responses: dict[str, httpx.Response], seen: list):
 GOOD = {
     "retelling": "Блогер в восторге.",
     "verdict": "Понравилась.",
-    "quotes": ["This might be the most unique concept", " ", "Worth it", "extra", "extra 2"],
+    "quotes": [
+        {"text": "This might be the most unique concept", "ru": "Возможно, это самый необычный замысел"},
+        {"text": " ", "ru": "пусто"},
+        "Worth it",
+        {"text": "extra", "ru": "ещё"},
+        {"text": "extra 2", "ru": "ещё 2"},
+    ],
     "pros": ["атмосфера", "", "стиль"],
     "cons": ["перезарядка"],
     "liked": True,
@@ -184,7 +190,13 @@ async def test_analyze_without_captions_watches_three_clips():
     assert "цитаты" in parts[-1]["text"]
     assert seen[0][1]["generationConfig"]["mediaResolution"] == "MEDIA_RESOLUTION_LOW"
     assert result.method == "video" and result.transcript is None  # без субтитров полной расшифровки нет
-    assert result.quotes == ["This might be the most unique concept", "Worth it", "extra"]
+    assert result.quotes == [
+        {"text": "This might be the most unique concept", "ru": "Возможно, это самый необычный замысел"},
+        {"text": "Worth it", "ru": ""},
+        {"text": "extra", "ru": "ещё"},
+    ]
+    prompt = parts[-1]["text"]
+    assert "перевод на русский" in prompt and "транслитерацию" in prompt
 
 
 async def test_analyze_rejects_empty_answer():

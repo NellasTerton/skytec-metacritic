@@ -61,7 +61,7 @@ class LetsplayResult:
     transcript: str | None
     retelling: str
     verdict: str
-    quotes: list[str] = field(default_factory=list)
+    quotes: list[dict] = field(default_factory=list)  # [{"text": оригинал, "ru": перевод}]
     pros: list[str] = field(default_factory=list)
     cons: list[str] = field(default_factory=list)
     liked: bool | None = None
@@ -184,22 +184,46 @@ async def fetch_transcript(client: httpx.AsyncClient, video: Video) -> str | Non
 # --- Gemini ---------------------------------------------------------------------------------
 
 RESULT_SCHEMA = (
-    '{"retelling": "...", "verdict": "...", "quotes": ["2–3 дословные цитаты на языке оригинала"], '
+    '{"retelling": "...", "verdict": "...", '
+    '"quotes": [{"text": "дословно, на языке оригинала", "ru": "перевод на русский"}], '
     '"pros": ["до 4 пунктов"], "cons": ["до 4 пунктов"], "liked": true}'
+)
+
+# Lite-модели тянут в русский текст кальки и транслит: «инсайн», «г-плей», «челлендж».
+STYLE_RULES = (
+    "Пиши по-русски грамотным живым языком, как игровой журналист. Не используй транслитерацию и кальки "
+    "английских слов («инсайн», «г-плей», «вайб», «челлендж», «фича»): передавай смысл русскими словами "
+    "(«безумная», «игровой процесс», «атмосфера», «испытание», «особенность»). Названия игр, серий, студий "
+    "и устоявшиеся жанры (метроидвания, роглайк, survival horror) оставляй как есть.\n"
 )
 
 
 def build_prompt(game_title: str, source: str) -> str:
     return (
         f"Это {source} летсплея игры «{game_title}»: блогер играет и комментирует вслух.\n"
-        "1. Перескажи по-русски, что блогер говорит об игре: что впечатляет, что раздражает, с чем "
-        "сравнивает. Это пересказ его речи, а не описание картинки. 5–7 предложений.\n"
+        "1. Перескажи, что блогер говорит об игре: что впечатляет, что раздражает, с чем сравнивает. "
+        "Это пересказ его речи, а не описание картинки. 5–7 предложений.\n"
         "2. Сделай заключение: понравилась ли игра блогеру и кому она подойдёт. Особенно учитывай его "
         "итоговые слова в конце.\n"
         "3. Приведи 2–3 короткие дословные цитаты блогера об игре на языке оригинала — только то, что он "
-        "действительно сказал.\n"
-        "Опирайся только на материал ролика, ничего не придумывай. Ответ — строго JSON:\n" + RESULT_SCHEMA
+        "действительно сказал, — и к каждой точный перевод на русский.\n"
+        + STYLE_RULES
+        + "Опирайся только на материал ролика, ничего не придумывай. Ответ — строго JSON:\n"
+        + RESULT_SCHEMA
     )
+
+
+def _quotes(items) -> list[dict]:
+    """[{"text": оригинал, "ru": перевод}]; строка без перевода тоже принимается."""
+    out = []
+    for item in items if isinstance(items, list) else []:
+        if isinstance(item, dict):
+            text, ru = str(item.get("text") or "").strip(), str(item.get("ru") or "").strip()
+        else:
+            text, ru = str(item).strip(), ""
+        if text:
+            out.append({"text": text, "ru": ru})
+    return out[:3]
 
 
 def video_clips(duration_s: int) -> list[tuple[int, int]]:
@@ -277,7 +301,7 @@ async def analyze(
         transcript=transcript,  # полная расшифровка — только из настоящих субтитров
         retelling=str(data["retelling"]).strip(),
         verdict=str(data["verdict"]).strip(),
-        quotes=_clean(data.get("quotes"), limit=3),
+        quotes=_quotes(data.get("quotes")),
         pros=_clean(data.get("pros")),
         cons=_clean(data.get("cons")),
         liked=liked if isinstance(liked, bool) else None,
