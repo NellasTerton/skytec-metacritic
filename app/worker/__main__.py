@@ -4,6 +4,7 @@ python -m app.worker run --trigger schedule    прогон (пишет в БД)
 python -m app.worker summarize --limit 20      резюме для игр в БД, у которых их ещё нет
 python -m app.worker media --limit 40          трейлеры и скриншоты для игр в БД без них
 python -m app.worker letsplays --limit 3       летсплеи для игр с оценками (YouTube Data API + Gemini)
+python -m app.worker recheck [--force]         раз в сутки: игры младше 30 дней без оценок — заново
 python -m app.worker game elden-ring           карточка игры в JSON, без БД
 python -m app.worker new-releases              список New Releases, без БД
 """
@@ -50,6 +51,9 @@ def main(argv: list[str] | None = None) -> int:
     media_p.add_argument("--limit", type=int, default=40)
     lp_p = sub.add_parser("letsplays", help="let's play verdicts for scored games")
     lp_p.add_argument("--limit", type=int, default=3)
+    rc_p = sub.add_parser("recheck", help="daily: refetch unscored games younger than 30 days")
+    rc_p.add_argument("--limit", type=int, default=5000)
+    rc_p.add_argument("--force", action="store_true", help="run even if already done today")
     game_p = sub.add_parser("game", help="print parsed game as JSON")
     game_p.add_argument("slug")
     sub.add_parser("new-releases", help="print New Releases")
@@ -74,6 +78,10 @@ def main(argv: list[str] | None = None) -> int:
         from app.worker.runner import media_backlog
 
         asyncio.run(media_backlog(args.limit))
+    elif args.command == "recheck":
+        from app.worker.runner import recheck_backlog
+
+        asyncio.run(recheck_backlog(args.limit, force=args.force))
     elif args.command == "letsplays":
         from app.worker.runner import letsplay_backlog
 

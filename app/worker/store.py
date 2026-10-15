@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.letsplay import LetsplayResult, Video
 from app.media import Media
 from app.metacritic import GameDetails
-from app.models import CrawlState, Game, GamePlatform, Letsplay, ReviewSummary, RunItem
+from app.models import CrawlState, Game, GamePlatform, Letsplay, ReviewSummary, Run, RunItem
 from app.summaries import SummaryResult
 from app.worker.selection import CrawlCursor
 
@@ -194,3 +194,30 @@ def save_letsplay(
         row.retelling, row.verdict, row.liked = result.retelling, result.verdict, result.liked
         row.pros, row.cons = result.pros, result.cons
         row.quotes = result.quotes
+
+
+def games_to_recheck(session: Session, day: date, max_age_days: int, limit: int) -> list[str]:
+    """Игры младше max_age_days без единой оценки, которые сегодня ещё не обрабатывали.
+
+    Обход SEE ALL за сутки доходит лишь на ~4 дня вглубь, поэтому без перепроверки игра,
+    получившая Metascore через неделю после релиза, так и осталась бы без оценок.
+    """
+    processed_today = select(RunItem.game_slug).where(RunItem.day == day)
+    stmt = (
+        select(Game.slug)
+        .where(
+            Game.release_date >= day - timedelta(days=max_age_days),
+            Game.release_date <= day,
+            Game.metascore.is_(None),
+            Game.userscore.is_(None),
+            Game.slug.not_in(processed_today),
+        )
+        .order_by(Game.release_date.desc())
+        .limit(limit)
+    )
+    return list(session.scalars(stmt))
+
+
+def recheck_done(session: Session, day: date) -> bool:
+    stmt = select(Run.id).where(Run.phase == "recheck", Run.details["day"].astext == day.isoformat()).limit(1)
+    return session.scalar(stmt) is not None

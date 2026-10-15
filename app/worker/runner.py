@@ -321,3 +321,49 @@ async def letsplay_backlog(limit: int, *, trigger: str = "backfill") -> int | No
     )
     log.info("run #%d letsplays: %s", run_id, stats)
     return run_id
+
+
+RECHECK_MAX_AGE_DAYS = 30
+
+
+async def recheck_backlog(
+    limit: int, *, force: bool = False, trigger: str = "daily", client: MetacriticClient | None = None
+) -> int | None:
+    """Раз в сутки: перечитать карточки игр младше 30 дней без оценок — вдруг оценки появились."""
+    settings = get_settings()
+    day = service_today()
+    with session_scope(serverless=False) as session:
+        if not force and store.recheck_done(session, day):
+            log.info("recheck already done today (%s)", day)
+            return None
+        slugs = store.games_to_recheck(session, day, RECHECK_MAX_AGE_DAYS, limit)
+        run = Run(trigger=trigger, status="running", phase="recheck", games_found=len(slugs))
+        run.heartbeat_at = store.now()
+        run.details = {"day": day.isoformat(), "max_age_days": RECHECK_MAX_AGE_DAYS}
+        session.add(run)
+        session.flush()
+        run_id = run.id
+    log.info("run #%d: recheck %d unscored games younger than %d days", run_id, len(slugs), RECHECK_MAX_AGE_DAYS)
+
+    own_client = client is None
+    client = client or MetacriticClient(
+        concurrency=settings.metacritic_concurrency, timeout=settings.metacritic_timeout
+    )
+    try:
+        games = await _collect(run_id, day, client, dict.fromkeys(slugs, "recheck"))
+    except Exception as e:
+        _update_run(run_id, status="failed", finished_at=store.now(), message=f"{type(e).__name__}: {e}"[:2000])
+        raise
+    finally:
+        if own_client:
+            await client.aclose()
+    scored = [g.slug for g in games if any(p.metascore is not None or p.userscore is not None for p in g.platforms)]
+    _update_run(
+        run_id,
+        status="success",
+        finished_at=store.now(),
+        message=f"перепроверено {len(games)}/{len(slugs)}, появились оценки у {len(scored)}",
+        details={"newly_scored": scored},
+    )
+    log.info("run #%d recheck: %d games, newly scored: %s", run_id, len(games), scored)
+    return run_id

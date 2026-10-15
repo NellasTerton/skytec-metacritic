@@ -42,6 +42,8 @@ jobs:
       - run: pip install -r requirements-worker.txt
       - run: alembic upgrade head
       - run: python -m app.worker run --trigger "${{ inputs.trigger }}"
+      # Раз в сутки (первым прогоном дня): игры младше 30 дней без оценок — вдруг оценки появились.
+      - run: python -m app.worker recheck
       # Дозаполнение: резюме для игр, которые не успели получить его раньше (лимиты LLM, ключа не было).
       - run: python -m app.worker summarize --limit 10
       # Трейлеры (YouTube) и скриншоты (Steam) для игр без них или с устаревшими (старше 7 дней).

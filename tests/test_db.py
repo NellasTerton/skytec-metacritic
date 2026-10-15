@@ -142,3 +142,23 @@ async def test_upsert_updates_existing_game(isolated_day):
         games = s.scalars(select(Game).where(Game.slug == slug)).all()
         assert len(games) == 1 and games[0].first_seen_at == first_seen
         assert games[0].last_processed_at > first_seen
+
+
+async def test_daily_recheck_refetches_young_unscored_games_once(isolated_day):
+    tag, created = isolated_day
+    young, old, scored = f"test-{tag}-young", f"test-{tag}-old", f"test-{tag}-scored"
+    with session_scope(serverless=False) as s:
+        s.add(Game(slug=young, title="Young", release_date=TEST_DAY - dt.timedelta(days=5)))
+        s.add(Game(slug=old, title="Old", release_date=TEST_DAY - dt.timedelta(days=45)))
+        s.add(Game(slug=scored, title="Scored", release_date=TEST_DAY - dt.timedelta(days=5), metascore=80))
+    client = FakeGameClient([], [])  # отдаёт карточку с Metascore 80 на PC
+    run_id = await runner.recheck_backlog(100, client=client)
+    created.append(run_id)
+    assert await runner.recheck_backlog(100, client=client) is None  # второй раз за день — пропуск
+    with session_scope(serverless=False) as s:
+        run = s.get_one(Run, run_id)
+        assert run.phase == "recheck" and run.games_found == 1 and run.details["newly_scored"] == [young]
+        assert s.scalars(select(Game.metascore).where(Game.slug == young)).one() == 80
+        assert s.scalars(select(Game.metascore).where(Game.slug == old)).one() is None  # старше 30 дней
+        items = s.scalars(select(RunItem).where(RunItem.run_id == run_id)).all()
+        assert [(i.game_slug, i.source) for i in items] == [(young, "recheck")]
