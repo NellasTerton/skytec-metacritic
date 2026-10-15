@@ -61,6 +61,10 @@ class Game(Base):
     banner_url: Mapped[str | None] = mapped_column(Text)
     video_title: Mapped[str | None] = mapped_column(Text)
     video_url: Mapped[str | None] = mapped_column(Text)
+    # Трейлеры и скриншоты из внешних источников (YouTube, Steam): {"videos": [...], "screenshots": [...]}.
+    media: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
+    steam_appid: Mapped[int | None] = mapped_column(Integer)
+    media_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     # Оценки lead-платформы: по ним сортируем список. По платформам — в game_platforms.
     metascore: Mapped[int | None] = mapped_column(Integer)

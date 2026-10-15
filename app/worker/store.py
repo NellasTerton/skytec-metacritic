@@ -1,10 +1,12 @@
 """Запись в БД: карточки игр, состояние обхода, прогоны."""
 
-from datetime import UTC, date, datetime
+import html
+from datetime import UTC, date, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.media import Media
 from app.metacritic import GameDetails
 from app.models import CrawlState, Game, GamePlatform, ReviewSummary, RunItem
 from app.summaries import SummaryResult
@@ -112,3 +114,31 @@ def upsert_game(session: Session, details: GameDetails) -> Game:
     game.platforms = platforms  # платформы, пропавшие из карточки, удаляются (delete-orphan)
     session.flush()
     return game
+
+
+MEDIA_TTL = timedelta(days=7)
+
+
+MediaTodo = tuple[str, str, dict | None]
+
+
+def games_needing_media(session: Session, limit: int, slugs: list[str] | None = None) -> list[MediaTodo]:
+    """(slug, title, видео Metacritic) игр без медиа или с медиа старше недели."""
+    stale = Game.media_updated_at.is_(None) | (Game.media_updated_at < now() - MEDIA_TTL)
+    stmt = select(Game.slug, Game.title, Game.video_title, Game.video_url).where(stale)
+    if slugs is not None:
+        stmt = stmt.where(Game.slug.in_(slugs))
+    # Сначала игры с оценками — их чаще открывают.
+    stmt = stmt.order_by(Game.metascore.desc().nulls_last(), Game.userscore.desc().nulls_last()).limit(limit)
+    out: list[MediaTodo] = []
+    for slug, title, video_title, video_url in session.execute(stmt):
+        mc_video = {"title": html.unescape(video_title or ""), "embed_url": video_url, "url": video_url}
+        out.append((slug, title, mc_video if video_url else None))
+    return out
+
+
+def save_media(session: Session, slug: str, media: Media) -> None:
+    game = session.scalars(select(Game).where(Game.slug == slug)).one()
+    game.media = media.as_json()
+    game.steam_appid = media.steam_appid
+    game.media_updated_at = now()

@@ -5,10 +5,14 @@ import logging
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
+import httpx
+
 from app.config import get_settings
 from app.db import session_scope
 from app.llm import LLMClient, LLMError, providers_from_settings
+from app.media import collect_media
 from app.metacritic import GameDetails, MetacriticClient
+from app.metacritic.client import BROWSER_UA
 from app.models import Run, RunItem
 from app.summaries import MIN_REVIEWS, kinds_to_update, summarize
 from app.worker import store
@@ -61,6 +65,33 @@ async def _collect(run_id: int, day: date, client: MetacriticClient, sources: di
             run.heartbeat_at = store.now()
             run.message = f"собрано: {slug}"
     return fetched
+
+
+MEDIA_CONCURRENCY = 4
+
+
+async def _media(run_id: int, todo: list[tuple[str, str, dict | None]]) -> dict:
+    """Трейлеры (YouTube) и скриншоты (Steam) для игр из todo."""
+    stats = {"needed": len(todo), "done": 0, "videos": 0, "screenshots": 0}
+    if not todo:
+        return stats
+    semaphore = asyncio.Semaphore(MEDIA_CONCURRENCY)
+    async with httpx.AsyncClient(timeout=30, headers={"User-Agent": BROWSER_UA}) as http:
+
+        async def one(slug: str, title: str, mc_video: dict | None):
+            async with semaphore:
+                return slug, await collect_media(http, title, mc_video)
+
+        for next_done in asyncio.as_completed([one(*item) for item in todo]):
+            slug, media = await next_done
+            with session_scope(serverless=False) as session:
+                store.save_media(session, slug, media)
+            stats["done"] += 1
+            stats["videos"] += bool(media.videos)
+            stats["screenshots"] += bool(media.screenshots)
+            _update_run(run_id, message=f"медиа {stats['done']}/{len(todo)}: {slug}", details={"media": stats})
+    log.info("run #%d media: %s", run_id, stats)
+    return stats
 
 
 async def _summarize(run_id: int, llm: LLMClient | None, games: list[GameDetails], limit: int) -> dict:
@@ -134,6 +165,9 @@ async def run_once(
         log.info("run #%d picked %d games (%s)", run_id, len(sources), phase)
 
         games = await _collect(run_id, day, client, sources)
+        with session_scope(serverless=False) as session:
+            media_todo = store.games_needing_media(session, BATCH_SIZE, [g.slug for g in games])
+        await _media(run_id, media_todo)
         summaries = await _summarize(run_id, llm, games, settings.summaries_per_run)
     except Exception as e:
         _update_run(run_id, status="failed", finished_at=store.now(), message=f"{type(e).__name__}: {e}"[:2000])
@@ -197,5 +231,32 @@ async def summarize_backlog(
         finished_at=store.now(),
         message=f"резюме {summaries.get('done', 0)}/{len(slugs)}",
         details={"summaries": summaries, "slugs": slugs},
+    )
+    return run_id
+
+
+async def media_backlog(limit: int, *, trigger: str = "backfill") -> int | None:
+    """Трейлеры и скриншоты для игр в БД, у которых их нет или они устарели."""
+    with session_scope(serverless=False) as session:
+        todo = store.games_needing_media(session, limit)
+        if not todo:
+            log.info("media backlog is empty")
+            return None
+        run = Run(trigger=trigger, status="running", phase="media", games_found=len(todo))
+        run.heartbeat_at = store.now()
+        session.add(run)
+        session.flush()
+        run_id = run.id
+    try:
+        stats = await _media(run_id, todo)
+    except Exception as e:
+        _update_run(run_id, status="failed", finished_at=store.now(), message=f"{type(e).__name__}: {e}"[:2000])
+        raise
+    _update_run(
+        run_id,
+        status="success",
+        finished_at=store.now(),
+        games_processed=stats["done"],
+        message=f"медиа {stats['done']}/{len(todo)}: видео {stats['videos']}, скриншоты {stats['screenshots']}",
     )
     return run_id

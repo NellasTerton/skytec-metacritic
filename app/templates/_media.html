@@ -1,0 +1,112 @@
+{# Видео (YouTube-трейлер, видео Metacritic) и скриншоты (Steam). Плеер грузится только по клику. #}
+{% set videos = (game.media or {}).get('videos') or [] %}
+{% if not videos and game.video_url %}
+  {% set videos = [{'source': 'metacritic', 'title': game.video_title, 'embed_url': game.video_url, 'url': game.video_url}] %}
+{% endif %}
+{% set shots = (game.media or {}).get('screenshots') or [] %}
+{% if videos or shots %}
+<div class="section">
+  <h2>{{ 'Видео и скриншоты' if videos and shots else 'Видео' if videos else 'Скриншоты' }}</h2>
+  <div class="media {{ 'single' if not (videos and shots) }}">
+    {% if videos %}
+    {% set v = videos[0] %}
+    <div>
+      <div class="player" id="player">
+        <button class="poster" type="button" data-embed="{{ v.embed_url }}" data-source="{{ v.source }}"
+          style="background-image: url('{{ v.thumbnail or game.banner_url or game.cover_url or '' }}')"
+          aria-label="Смотреть: {{ v.title or 'трейлер' }}">
+          <span class="play"><svg class="icon"><use href="#i-play"/></svg></span>
+          <span class="caption">{{ v.title or 'Трейлер' }}</span>
+        </button>
+      </div>
+      {% if videos | length > 1 %}
+      <div class="video-tabs">
+        {% for item in videos %}
+        <button type="button" class="{{ 'active' if loop.first }}" data-embed="{{ item.embed_url }}"
+          data-source="{{ item.source }}" data-url="{{ item.url }}">{{ 'YouTube' if item.source == 'youtube' else 'Metacritic' }}</button>
+        {% endfor %}
+      </div>
+      {% endif %}
+      <p class="video-link muted" id="video-link">
+        <a href="{{ v.url }}" target="_blank" rel="noopener">{{ 'Смотреть на YouTube' if v.source == 'youtube' else 'Открыть видео отдельно' }} ↗</a>
+        {%- if v.channel %} · {{ v.channel }}{% endif %}
+      </p>
+    </div>
+    {% endif %}
+    {% if shots %}
+    {% set visible = 6 if videos else 12 %}
+    <div class="shots">
+      {% for s in shots[:visible] %}
+        <button type="button" data-index="{{ loop.index0 }}" aria-label="Скриншот {{ loop.index }}">
+          <img src="{{ s.thumb }}" alt="" loading="lazy">
+          {% if loop.last and shots | length > visible %}<span class="more">+{{ shots | length - visible }}</span>{% endif %}
+        </button>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+  {% if shots and game.steam_appid %}
+  <p class="muted" style="font-size:12px;margin:8px 0 0">Скриншоты:
+    <a href="https://store.steampowered.com/app/{{ game.steam_appid }}/" target="_blank" rel="noopener">Steam ↗</a></p>
+  {% endif %}
+</div>
+
+{% if shots %}
+<dialog class="lightbox" id="lightbox" aria-label="Скриншоты">
+  <img id="lightbox-img" alt="">
+  <div class="bar">
+    <button type="button" id="lb-prev" aria-label="Предыдущий">‹</button>
+    <span id="lb-count"></span>
+    <button type="button" id="lb-next" aria-label="Следующий">›</button>
+    <button type="button" id="lb-close" aria-label="Закрыть">✕</button>
+  </div>
+</dialog>
+{% endif %}
+<script>
+(() => {
+  const player = document.getElementById('player');
+  function embed(url, source) {
+    const sep = url.includes('?') ? '&' : '?';
+    const src = source === 'youtube' ? `${url}${sep}autoplay=1&rel=0&playsinline=1` : url;
+    player.innerHTML = `<iframe src="${src}" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>`;
+  }
+  player?.addEventListener('click', (e) => {
+    const btn = e.target.closest('.poster');
+    if (btn) embed(btn.dataset.embed, btn.dataset.source);
+  });
+  document.querySelectorAll('.video-tabs button').forEach((tab) => tab.addEventListener('click', () => {
+    document.querySelectorAll('.video-tabs button').forEach((b) => b.classList.toggle('active', b === tab));
+    embed(tab.dataset.embed, tab.dataset.source);
+    const label = tab.dataset.source === 'youtube' ? 'Смотреть на YouTube' : 'Открыть видео отдельно';
+    document.getElementById('video-link').innerHTML = `<a href="${tab.dataset.url}" target="_blank" rel="noopener">${label} ↗</a>`;
+  }));
+
+  const shots = {{ shots | tojson }};
+  const box = document.getElementById('lightbox');
+  if (!box) return;
+  let current = 0;
+  function show(i) {
+    current = (i + shots.length) % shots.length;
+    document.getElementById('lightbox-img').src = shots[current].full;
+    document.getElementById('lb-count').textContent = `${current + 1} / ${shots.length}`;
+  }
+  document.querySelectorAll('.shots button').forEach((b) => b.addEventListener('click', () => { show(+b.dataset.index); box.showModal(); }));
+  document.getElementById('lb-prev').addEventListener('click', () => show(current - 1));
+  document.getElementById('lb-next').addEventListener('click', () => show(current + 1));
+  document.getElementById('lb-close').addEventListener('click', () => box.close());
+  box.addEventListener('click', (e) => { if (e.target === box) box.close(); });
+  box.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowLeft') show(current - 1);
+    if (e.key === 'ArrowRight') show(current + 1);
+  });
+  let touchX = null;
+  box.addEventListener('touchstart', (e) => { touchX = e.touches[0].clientX; }, { passive: true });
+  box.addEventListener('touchend', (e) => {
+    if (touchX === null) return;
+    const dx = e.changedTouches[0].clientX - touchX;
+    if (Math.abs(dx) > 40) show(current + (dx < 0 ? 1 : -1));
+    touchX = null;
+  });
+})();
+</script>
+{% endif %}

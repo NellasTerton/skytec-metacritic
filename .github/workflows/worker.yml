@@ -1,13 +1,12 @@
 name: worker
 
 on:
-  # Раз в час; минута не нулевая — в начале часа очередь Actions самая длинная.
-  schedule:
-    - cron: "17 * * * *"
+  # Ежечасный запуск — внешний: cron-job.org → /api/cron на сайте → workflow_dispatch.
+  # Встроенный schedule GitHub убран: за день сработал один раз и с опозданием на 20 минут.
   workflow_dispatch:
     inputs:
       trigger:
-        description: "Источник запуска (manual / web)"
+        description: "Источник запуска (manual / cron / web)"
         default: manual
 
 # Не запускаем два прогона одновременно; новый ждёт окончания текущего.
@@ -40,6 +39,8 @@ jobs:
           cache-dependency-path: requirements*.txt
       - run: pip install -r requirements-worker.txt
       - run: alembic upgrade head
-      - run: python -m app.worker run --trigger "${{ github.event_name == 'schedule' && 'schedule' || inputs.trigger }}"
+      - run: python -m app.worker run --trigger "${{ inputs.trigger }}"
       # Дозаполнение: резюме для игр, которые не успели получить его раньше (лимиты LLM, ключа не было).
       - run: python -m app.worker summarize --limit 10
+      # Трейлеры (YouTube) и скриншоты (Steam) для игр без них или с устаревшими (старше 7 дней).
+      - run: python -m app.worker media --limit 40

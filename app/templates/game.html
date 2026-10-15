@@ -27,8 +27,34 @@
   .summaries ul { margin: 6px 0 0; padding-left: 18px; }
   .pros li::marker { content: "+  "; color: var(--good); font-weight: 700; }
   .cons li::marker { content: "−  "; color: var(--bad); font-weight: 700; }
-  .video { position: relative; aspect-ratio: 16 / 9; border-radius: 10px; overflow: hidden; background: #000; max-width: 720px; }
-  .video iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+  .media { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+  .media.single { grid-template-columns: minmax(0, 760px); }
+  .player { position: relative; aspect-ratio: 16 / 9; border-radius: 12px; overflow: hidden; background: #000; }
+  .player iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+  .player .poster { position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; border: 0; border-radius: 0;
+    background: #000 center / cover no-repeat; cursor: pointer; display: grid; place-items: center; }
+  .player .poster::after { content: ""; position: absolute; inset: 0; background: linear-gradient(0deg, rgba(0,0,0,.6), transparent 55%); }
+  .player .play { position: relative; z-index: 1; width: 68px; height: 68px; border-radius: 50%; display: grid; place-items: center;
+    background: rgba(47, 124, 246, .92); color: #fff; box-shadow: 0 6px 24px rgba(0,0,0,.5); transition: transform .15s; }
+  .player .poster:hover .play { transform: scale(1.07); }
+  .player .play .icon { width: 28px; height: 28px; fill: currentColor; stroke: none; margin-left: 4px; }
+  .player .caption { position: absolute; z-index: 1; left: 14px; right: 14px; bottom: 10px; color: #fff; font-weight: 600;
+    font-size: 14px; text-align: left; text-shadow: 0 1px 3px rgba(0,0,0,.7); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .video-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .video-tabs button { font-size: 13px; padding: 5px 10px; }
+  .video-tabs button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .video-link { margin: 8px 0 0; font-size: 13px; }
+  .shots { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .shots button { padding: 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; aspect-ratio: 16 / 9;
+    background: var(--card-2); display: block; position: relative; }
+  .shots img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .2s; }
+  .shots button:hover img { transform: scale(1.04); }
+  .shots .more { position: absolute; inset: 0; display: grid; place-items: center; font-weight: 800; color: #fff;
+    font-size: 18px; background: rgba(5, 8, 15, .6); }
+  dialog.lightbox { padding: 0; border: 0; background: transparent; max-width: 96vw; max-height: 94vh; overflow: visible; }
+  dialog.lightbox::backdrop { background: rgba(5, 8, 15, .9); }
+  dialog.lightbox img { display: block; max-width: 96vw; max-height: 82vh; border-radius: 10px; margin: 0 auto; }
+  dialog.lightbox .bar { display: flex; justify-content: center; align-items: center; gap: 10px; margin-top: 10px; color: #fff; }
   .similar { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; }
   .similar a { display: block; color: inherit; padding: 10px; }
   .similar a:hover { text-decoration: none; border-color: var(--accent); }
@@ -45,6 +71,8 @@
     .lead-scores { gap: 14px; }
     .summaries { grid-template-columns: 1fr; }
     .similar { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+    .media { grid-template-columns: 1fr; }
+    .shots { grid-template-columns: repeat(3, 1fr); gap: 6px; }
   }
 </style>
 {% endblock %}
@@ -112,13 +140,7 @@
   </div>
 </div>
 
-{% if game.video_url %}
-<div class="section">
-  <h2>Видео</h2>
-  <div class="video"><iframe src="{{ game.video_url }}" title="{{ game.video_title or game.title }}" allowfullscreen loading="lazy"></iframe></div>
-  <p class="muted">{{ game.video_title }} · <a href="{{ game.video_url }}" target="_blank" rel="noopener">открыть отдельно ↗</a></p>
-</div>
-{% endif %}
+{% include "_media.html" %}
 
 <div class="section">
   <h2>Похожие игры</h2>

@@ -1,5 +1,6 @@
 """Чистые функции: JSON backend.metacritic.com -> схемы. Без сети, тестируются на фикстурах."""
 
+import html
 from datetime import date
 from typing import Any
 
@@ -167,7 +168,8 @@ def parse_composer(data: dict) -> GameDetails:
     video = None
     if video_raw and (video_raw.get("embedUrl") or video_raw.get("manifestUrl")):
         video = Video(
-            title=video_raw.get("title") or video_raw.get("videoTitle"),
+            # В названиях видео Metacritic встречаются HTML-сущности: «&amp;», «&#8217;».
+            title=html.unescape(video_raw.get("title") or video_raw.get("videoTitle") or "") or None,
             embed_url=video_raw.get("embedUrl"),
             manifest_url=video_raw.get("manifestUrl"),
         )
