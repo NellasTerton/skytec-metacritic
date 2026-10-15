@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session, selectinload
 
-from app.models import Game, GamePlatform, Run
+from app.models import Game, GamePlatform, ReviewSummary, Run, RunItem
 
 PAGE_SIZE = 24
 SORTS = {
@@ -111,6 +111,14 @@ AUTO_TRIGGERS = ("cron", "schedule")
 STALE_RUN_MINUTES = 15
 
 
+def active_run(session: Session) -> Run | None:
+    """Прогон, который идёт прямо сейчас (живой heartbeat); зависшие не считаются."""
+    fresh = datetime.now(UTC) - timedelta(minutes=STALE_RUN_MINUTES)
+    return session.scalars(
+        select(Run).where(Run.status == "running", Run.heartbeat_at > fresh).order_by(Run.started_at.desc()).limit(1)
+    ).first()
+
+
 def auto_run_blocker(session: Session, min_interval_minutes: int) -> str | None:
     """Причина не запускать автоматический прогон сейчас, или None.
 
@@ -118,13 +126,7 @@ def auto_run_blocker(session: Session, min_interval_minutes: int) -> str | None:
     за последние `min_interval_minutes` минут.
     """
     now = datetime.now(UTC)
-    running = session.scalars(
-        select(Run)
-        .where(Run.status == "running", Run.heartbeat_at > now - timedelta(minutes=STALE_RUN_MINUTES))
-        .order_by(Run.started_at.desc())
-        .limit(1)
-    ).first()
-    if running:
+    if running := active_run(session):
         return f"run #{running.id} is still running"
     recent = session.scalars(
         select(Run)
@@ -135,3 +137,46 @@ def auto_run_blocker(session: Session, min_interval_minutes: int) -> str | None:
     if recent:
         return f"automatic run #{recent.id} already started at {recent.started_at:%H:%M} UTC"
     return None
+
+
+def _run_dict(run: Run, now: datetime) -> dict:
+    stale = run.status == "running" and (run.heartbeat_at or run.started_at) < now - timedelta(
+        minutes=STALE_RUN_MINUTES
+    )
+    end = run.finished_at or now
+    summaries = (run.details or {}).get("summaries") or {}
+    return {
+        "id": run.id,
+        "trigger": run.trigger,
+        "status": "stale" if stale else run.status,
+        "phase": run.phase,
+        "started_at": run.started_at.isoformat(),
+        "finished_at": run.finished_at.isoformat() if run.finished_at else None,
+        "duration_s": int((end - run.started_at).total_seconds()),
+        "heartbeat_age_s": int((now - run.heartbeat_at).total_seconds()) if run.heartbeat_at else None,
+        "found": run.games_found,
+        "processed": run.games_processed,
+        "failed": run.games_failed,
+        "summaries_done": summaries.get("done", 0),
+        "summaries_needed": summaries.get("needed", 0),
+        "summaries_skipped": summaries.get("skipped"),
+        "message": run.message,
+    }
+
+
+def monitor_status(session: Session, *, day_start: datetime, recent: int = 15) -> dict:
+    """Данные для страницы мониторинга. day_start — начало «сегодня» в часовом поясе сервиса."""
+    now = datetime.now(UTC)
+    runs = session.scalars(select(Run).order_by(Run.started_at.desc()).limit(recent)).all()
+    scored = Game.metascore.is_not(None) | Game.userscore.is_not(None)
+    totals = {
+        "games": session.scalar(select(func.count()).select_from(Game)) or 0,
+        "games_scored": session.scalar(select(func.count()).select_from(Game).where(scored)) or 0,
+        "summaries": session.scalar(select(func.count()).select_from(ReviewSummary)) or 0,
+        "runs_today": session.scalar(select(func.count()).select_from(Run).where(Run.started_at >= day_start)) or 0,
+        "processed_today": session.scalar(
+            select(func.count(func.distinct(RunItem.game_slug))).where(RunItem.created_at >= day_start)
+        )
+        or 0,
+    }
+    return {"now": now.isoformat(), "totals": totals, "runs": [_run_dict(r, now) for r in runs]}

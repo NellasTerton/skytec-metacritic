@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+{% block title %}Мониторинг{% endblock %}
+{% block head %}
+<style>
+  .head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+  .head h1 { margin: 0; font-size: 22px; }
+  .run-box { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .run-note { font-size: 13px; }
+  .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 12px; }
+  .tile { padding: 12px 14px; }
+  .tile .value { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .tile .label { font-size: 12px; color: var(--muted); }
+  .workers { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+  .workers h3, .current h3, .history h3 { margin: 0 0 8px; font-size: 15px; }
+  .chip { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600;
+    color: #fff; background: var(--none); white-space: nowrap; }
+  .chip.running, .chip.in_progress { background: var(--accent); }
+  .chip.queued { background: var(--mixed); }
+  .chip.success { background: var(--good); }
+  .chip.failed, .chip.failure { background: var(--bad); }
+  .chip.idle, .chip.stale { background: var(--none); }
+  .kv { font-size: 14px; } .kv div { margin: 2px 0; }
+  .progress { margin: 10px 0 4px; }
+  .progress .bar { height: 8px; background: var(--line); border-radius: 999px; overflow: hidden; }
+  .progress .fill { height: 100%; background: var(--accent); border-radius: 999px; transition: width .4s; }
+  .progress .caption { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-top: 3px; }
+  .current { margin-bottom: 12px; }
+  .runs { display: flex; flex-direction: column; }
+  .run-row { display: grid; grid-template-columns: 52px 92px 1fr auto; gap: 8px; align-items: center;
+    padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+  .run-row:last-child { border-bottom: 0; }
+  .run-row .id { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .run-row .what { min-width: 0; }
+  .run-row .what .sub { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .run-row .when { text-align: right; font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .pulse { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--good); margin-right: 6px;
+    animation: pulse 1.6s infinite; vertical-align: middle; }
+  .pulse.off { background: var(--none); animation: none; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
+  @media (max-width: 720px) {
+    .tiles { grid-template-columns: 1fr 1fr; }
+    .workers { grid-template-columns: 1fr; }
+    .run-row { grid-template-columns: 44px 1fr auto; }
+    .run-row .status { grid-column: 2; grid-row: 2; }
+    .run-row .what { grid-column: 2 / 4; grid-row: 1; }
+    .run-row .when { grid-column: 3; grid-row: 2; }
+    .run-row .id { grid-row: span 2; }
+  }
+</style>
+{% endblock %}
+{% block content %}
+<div class="head">
+  <h1><span id="live" class="pulse off"></span>Мониторинг</h1>
+  <div class="run-box">
+    <span id="run-note" class="run-note muted"></span>
+    <button id="run-btn" class="primary" disabled>Запустить сейчас</button>
+  </div>
+</div>
+
+<div class="tiles">
+  <div class="card tile"><div class="value" id="t-games">—</div><div class="label">игр в базе (<span id="t-scored">—</span> с оценками)</div></div>
+  <div class="card tile"><div class="value" id="t-summaries">—</div><div class="label">резюме отзывов</div></div>
+  <div class="card tile"><div class="value" id="t-processed">—</div><div class="label">игр обработано сегодня</div></div>
+  <div class="card tile"><div class="value" id="t-runs">—</div><div class="label">прогонов сегодня</div></div>
+</div>
+
+<div class="workers">
+  <div class="card">
+    <h3>Воркер · GitHub Actions</h3>
+    <div class="kv" id="w-github">загрузка…</div>
+  </div>
+  <div class="card">
+    <h3>Обработка · база данных</h3>
+    <div class="kv" id="w-db">загрузка…</div>
+  </div>
+</div>
+
+<div class="card current">
+  <h3 id="c-title">Последний прогон</h3>
+  <div id="c-body" class="kv muted">загрузка…</div>
+</div>
+
+<div class="card history">
+  <h3>История прогонов</h3>
+  <div class="runs" id="runs"></div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(() => {
+  const TRIGGERS = { cron: 'по расписанию', schedule: 'cron GitHub', web: 'кнопка', manual: 'вручную',
+    backfill: 'дозаполнение', test: 'тест', workflow_dispatch: 'dispatch (cron-job.org или кнопка)' };
+  const PHASES = { new_releases: 'New Releases', browse: 'SEE ALL', summaries: 'резюме' };
+  const STATUSES = { running: 'идёт', success: 'успешно', failed: 'ошибка', stale: 'завис', queued: 'в очереди',
+    in_progress: 'работает', idle: 'свободен', failure: 'ошибка', cancelled: 'отменён' };
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const chip = (s) => `<span class="chip ${esc(s)}">${esc(STATUSES[s] || s)}</span>`;
+  const time = (iso) => iso ? new Date(iso).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : '—';
+  const dateTime = (iso) => iso ? new Date(iso).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
+  const dur = (s) => s == null ? '—' : s < 60 ? `${s} с` : `${Math.floor(s / 60)} мин ${s % 60} с`;
+  const ago = (s) => s == null ? '—' : s < 60 ? `${s} с назад` : `${Math.floor(s / 60)} мин назад`;
+
+  function bar(label, done, total) {
+    const pct = total ? Math.min(100, Math.round(done / total * 100)) : 0;
+    return `<div class="progress"><div class="bar"><div class="fill" style="width:${pct}%"></div></div>
+      <div class="caption"><span>${esc(label)}</span><span>${done} / ${total}</span></div></div>`;
+  }
+
+  function nextCron() {
+    const d = new Date(); d.setUTCSeconds(0, 0);
+    d.setUTCMinutes(5); if (d <= new Date()) d.setUTCHours(d.getUTCHours() + 1);
+    return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+  }
+
+  function render(data) {
+    const t = data.totals;
+    $('t-games').textContent = t.games; $('t-scored').textContent = t.games_scored;
+    $('t-summaries').textContent = t.summaries; $('t-processed').textContent = t.processed_today;
+    $('t-runs').textContent = t.runs_today;
+
+    const gh = data.github;
+    if (!data.dispatch_configured) {
+      $('w-github').innerHTML = '<span class="muted">Нет GITHUB_DISPATCH_TOKEN: статус и запуск недоступны.</span>';
+    } else if (!gh) {
+      $('w-github').innerHTML = '<span class="muted">Нет данных от GitHub API.</span>';
+    } else {
+      const state = gh.active ? gh.status : 'idle';
+      $('w-github').innerHTML = `<div>Статус: ${chip(state)}</div>
+        <div>Последний запуск: ${dateTime(gh.created_at)} · ${esc(TRIGGERS[gh.event] || gh.event)}
+          ${gh.conclusion ? ' · ' + chip(gh.conclusion) : ''}</div>
+        <div>Следующий по расписанию: ~${nextCron()}</div>
+        <div><a href="${esc(gh.url)}" target="_blank" rel="noopener">Открыть в Actions ↗</a></div>`;
+    }
+
+    const runs = data.runs;
+    const cur = runs[0];
+    const running = cur && cur.status === 'running';
+    $('live').classList.toggle('off', !running && !(gh && gh.active));
+    $('w-db').innerHTML = running
+      ? `<div>Сейчас: ${chip('running')} прогон #${cur.id}</div><div>Пульс: ${ago(cur.heartbeat_age_s)}</div>
+         <div class="muted">${esc(cur.message || '')}</div>`
+      : `<div>Сейчас: ${chip('idle')}</div><div>Последний прогон: #${cur ? cur.id : '—'} в ${cur ? time(cur.started_at) : '—'}</div>`;
+
+    if (!cur) {
+      $('c-body').innerHTML = 'Прогонов ещё не было.';
+    } else {
+      $('c-title').textContent = running ? `Текущий прогон #${cur.id}` : `Последний прогон #${cur.id}`;
+      const summ = cur.summaries_skipped ? `<div class="muted">Резюме: ${esc(cur.summaries_skipped)}</div>`
+        : bar('Резюме отзывов', cur.summaries_done, cur.summaries_needed);
+      $('c-body').classList.remove('muted');
+      $('c-body').innerHTML = `<div>${chip(cur.status)} · ${esc(TRIGGERS[cur.trigger] || cur.trigger)}
+          · ${esc(PHASES[cur.phase] || cur.phase || '—')} · ${dur(cur.duration_s)}</div>
+        ${bar(`Игры (ошибок: ${cur.failed})`, cur.processed + cur.failed, cur.found)}
+        ${summ}
+        <div class="muted" style="font-size:13px">${esc(cur.message || '')}</div>`;
+    }
+
+    $('runs').innerHTML = runs.map((r) => `
+      <div class="run-row">
+        <span class="id">#${r.id}</span>
+        <span class="status">${chip(r.status)}</span>
+        <span class="what">${esc(TRIGGERS[r.trigger] || r.trigger)} · ${esc(PHASES[r.phase] || r.phase || '—')}
+          <div class="sub">игр ${r.processed}/${r.found}${r.failed ? `, ошибок ${r.failed}` : ''} · резюме ${r.summaries_done}</div></span>
+        <span class="when">${dateTime(r.started_at)}<br>${dur(r.duration_s)}</span>
+      </div>`).join('') || '<div class="muted">Прогонов ещё не было.</div>';
+
+    const btn = $('run-btn');
+    if (!pendingDispatch) {
+      btn.disabled = !data.can_run;
+      $('run-note').textContent = data.run_blocker || (data.dispatch_configured ? '' : 'запуск не настроен');
+    }
+  }
+
+  let timer = null, pendingDispatch = false;
+  async function poll() {
+    try {
+      const r = await fetch('/api/status', { cache: 'no-store' });
+      if (r.ok) render(await r.json());
+    } catch (e) { /* сеть моргнула — попробуем на следующем тике */ }
+  }
+  function start() { if (!timer) { poll(); timer = setInterval(poll, 2500); } }
+  function stop() { clearInterval(timer); timer = null; }
+  document.addEventListener('visibilitychange', () => document.hidden ? stop() : start());
+  start();
+
+  $('run-btn').addEventListener('click', async () => {
+    const btn = $('run-btn');
+    btn.disabled = true; pendingDispatch = true;
+    $('run-note').textContent = 'отправляю запрос…';
+    try {
+      const r = await fetch('/api/run', { method: 'POST' });
+      const body = await r.json();
+      $('run-note').textContent = body.dispatched ? 'запуск отправлен, воркер стартует через 10–40 с' : (body.reason || body.error);
+    } catch (e) {
+      $('run-note').textContent = 'не удалось отправить запрос';
+    }
+    setTimeout(() => { pendingDispatch = false; poll(); }, 8000);
+  });
+})();
+</script>
+{% endblock %}

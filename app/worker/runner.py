@@ -59,7 +59,7 @@ async def _collect(run_id: int, day: date, client: MetacriticClient, sources: di
             run = session.get_one(Run, run_id)
             run.games_processed, run.games_failed = len(fetched), failed
             run.heartbeat_at = store.now()
-            run.message = f"collected: {slug}"
+            run.message = f"собрано: {slug}"
     return fetched
 
 
@@ -77,7 +77,7 @@ async def _summarize(run_id: int, llm: LLMClient | None, games: list[GameDetails
         if not llm.available:
             stats["stopped"] = "all LLM providers exhausted"
             break
-        _update_run(run_id, message=f"summaries {i}/{len(todo)}: {game.slug}")
+        _update_run(run_id, message=f"резюме {i}/{len(todo)}: {game.slug}")
         try:
             results = await summarize(llm, game, kinds)
         except LLMError as e:
@@ -145,7 +145,7 @@ async def run_once(
         if own_llm and llm is not None:
             await llm.aclose()
 
-    message = f"games {len(games)}/{len(sources)}, summaries {summaries.get('done', 0)}"
+    message = f"игр {len(games)}/{len(sources)}, резюме {summaries.get('done', 0)}"
     _update_run(run_id, status="success", finished_at=store.now(), message=message, details={"summaries": summaries})
     log.info("run #%d finished: %s", run_id, message)
     return run_id
@@ -195,7 +195,7 @@ async def summarize_backlog(
         run_id,
         status="success",
         finished_at=store.now(),
-        message=f"summaries {summaries.get('done', 0)}/{len(slugs)}",
+        message=f"резюме {summaries.get('done', 0)}/{len(slugs)}",
         details={"summaries": summaries, "slugs": slugs},
     )
     return run_id

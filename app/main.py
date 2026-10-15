@@ -2,8 +2,10 @@
 
 import hmac
 import logging
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlencode
+from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
@@ -14,7 +16,7 @@ from sqlalchemy import text
 from app import queries
 from app.config import get_settings
 from app.db import DatabaseNotConfigured, session_scope
-from app.github import DispatchError, dispatch_worker
+from app.github import DispatchError, dispatch_worker, latest_worker_run
 from app.platforms import short_platform
 
 logging.basicConfig(level=get_settings().log_level)
@@ -117,3 +119,75 @@ def game_card(request: Request, slug: str) -> HTMLResponse:
         return templates.TemplateResponse(
             request, "game.html", {"nav": "games", "game": game, "similar": similar, "summaries": summaries}
         )
+
+
+# --- мониторинг -------------------------------------------------------------------------
+
+
+def _day_start() -> datetime:
+    tz = ZoneInfo(get_settings().service_tz)
+    return datetime.now(tz).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(UTC)
+
+
+def _monitor_data() -> dict:
+    with session_scope() as session:
+        data = queries.monitor_status(session, day_start=_day_start())
+        running = queries.active_run(session)
+        data["active_run_id"] = running.id if running else None
+    return data
+
+
+def _active_run_id() -> int | None:
+    with session_scope() as session:
+        running = queries.active_run(session)
+        return running.id if running else None
+
+
+def _run_blocker(github: dict | None, active_run_id: int | None) -> str | None:
+    if github and github["active"]:
+        return "воркер уже в очереди или работает в GitHub Actions"
+    if active_run_id:
+        return f"идёт прогон #{active_run_id}"
+    return None
+
+
+@app.get("/api/status")
+async def status() -> JSONResponse:
+    settings = get_settings()
+    try:
+        data = await run_in_threadpool(_monitor_data)
+    except DatabaseNotConfigured:
+        return JSONResponse({"error": "database is not configured"}, status_code=503)
+    github = await latest_worker_run(settings)
+    blocker = _run_blocker(github, data.pop("active_run_id"))
+    data.update(
+        github=github,
+        dispatch_configured=bool(settings.github_dispatch_token),
+        can_run=bool(settings.github_dispatch_token) and blocker is None,
+        run_blocker=blocker,
+    )
+    return JSONResponse(data, headers={"Cache-Control": "no-store"})
+
+
+@app.post("/api/run")
+async def run_now() -> JSONResponse:
+    """Кнопка «Запустить сейчас»: workflow_dispatch, если воркер сейчас не занят."""
+    settings = get_settings()
+    if not settings.github_dispatch_token:
+        return JSONResponse({"error": "GITHUB_DISPATCH_TOKEN is not configured"}, status_code=503)
+    github = await latest_worker_run(settings, use_cache=False)
+    active = await run_in_threadpool(_active_run_id)
+    if blocker := _run_blocker(github, active):
+        return JSONResponse({"dispatched": False, "reason": blocker}, status_code=409)
+    try:
+        await dispatch_worker(settings, "web")
+    except DispatchError as e:
+        log.error("manual dispatch failed: %s", e)
+        return JSONResponse({"dispatched": False, "reason": str(e)}, status_code=502)
+    log.info("manual run dispatched from the website")
+    return JSONResponse({"dispatched": True})
+
+
+@app.get("/monitor", response_class=HTMLResponse)
+def monitor(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse(request, "monitor.html", {"nav": "monitor"})

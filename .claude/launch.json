@@ -4,7 +4,7 @@
     {
       "name": "site",
       "runtimeExecutable": ".venv/Scripts/uvicorn.exe",
-      "runtimeArgs": ["app.main:app", "--port", "8765"],
+      "runtimeArgs": ["app.main:app", "--port", "8765", "--reload"],
       "port": 8765
     }
   ]
