@@ -46,6 +46,11 @@ class Settings(BaseSettings):
     # (внешний cron и запасной cron GitHub не дают двух прогонов в час).
     auto_run_min_interval_minutes: int = 50
 
+    # Telegram-бот: приветствие на /start и кнопка Mini App с каталогом.
+    telegram_bot_token: str | None = None
+    telegram_webhook_secret: str | None = None
+    site_url: str = "https://skytec-metacritic.vercel.app/"
+
     log_level: str = "INFO"
 
     @property

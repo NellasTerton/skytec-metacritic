@@ -18,6 +18,7 @@ from app.config import get_settings
 from app.db import DatabaseNotConfigured, session_scope
 from app.github import DispatchError, dispatch_worker, latest_worker_run
 from app.platforms import short_platform
+from app.telegram import handle_update
 
 logging.basicConfig(level=get_settings().log_level)
 log = logging.getLogger(__name__)
@@ -126,6 +127,27 @@ def game_card(request: Request, slug: str) -> HTMLResponse:
         return templates.TemplateResponse(
             request, "game.html", {"nav": "games", "game": game, "similar": similar, "summaries": summaries}
         )
+
+
+# --- Telegram ---------------------------------------------------------------------------
+
+
+@app.post("/api/telegram/webhook", include_in_schema=False)
+async def telegram_webhook(
+    request: Request, x_telegram_bot_api_secret_token: str | None = Header(default=None)
+) -> JSONResponse:
+    """Апдейты бота. Всегда 200 после проверки секрета: иначе Telegram будет слать апдейт повторно."""
+    settings = get_settings()
+    if not settings.telegram_bot_token or not settings.telegram_webhook_secret:
+        return JSONResponse({"error": "telegram is not configured"}, status_code=503)
+    if not hmac.compare_digest(x_telegram_bot_api_secret_token or "", settings.telegram_webhook_secret):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    try:
+        action = await handle_update(await request.json(), settings.telegram_bot_token, settings.site_url)
+    except Exception:
+        log.exception("telegram update failed")
+        action = "error"
+    return JSONResponse({"ok": True, "action": action})
 
 
 # --- мониторинг -------------------------------------------------------------------------
