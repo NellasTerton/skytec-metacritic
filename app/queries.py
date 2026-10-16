@@ -90,7 +90,7 @@ def get_game(session: Session, slug: str) -> Game | None:
 EMBEDDING_CANDIDATES = 40
 OVERLAP_CANDIDATES = 100
 NEUTRAL_SIMILARITY = 0.5  # у игры ещё нет эмбеддинга — описание не помогает и не мешает
-DESCRIPTION_REASON_SIMILARITY = 0.8  # с какого сходства писать «похожее описание»
+RELEVANCE_MARGIN = 0.2  # насколько хуже лучшего может быть игра, которую поднимаем за наличие оценок
 
 
 def _has_score(game: Game) -> bool:
@@ -100,15 +100,20 @@ def _has_score(game: Game) -> bool:
 def rank_similar(
     game: Game, candidates: list[tuple[Game, float | None]], limit: int = SIMILAR_LIMIT
 ) -> list[tuple[Game, list[str]]]:
-    """Сходство описаний (косинус эмбеддингов) + общие жанры + общий разработчик; игры с оценками выше.
+    """Сходство описаний (косинус эмбеддингов) + общие жанры + общий разработчик.
 
+    Сначала отбираем самые релевантные (вдвое больше, чем покажем), и уже среди них игры с
+    оценками ставим выше: иначе любая игра с оценкой обгоняла бы действительно похожую без неё.
     candidates — (игра, косинусное сходство или None, если эмбеддинга нет).
     """
     genres, devs = set(game.genres or []), set(game.developers or [])
+    others = [(other, sim) for other, sim in candidates if other.id != game.id]
+    # Сходство Gemini лежит в узком диапазоне (~0.75–0.85), поэтому «похожее описание» — у трёх ближайших.
+    closest = {
+        other.id for other, sim in sorted((c for c in others if c[1] is not None), key=lambda c: c[1], reverse=True)[:3]
+    }
     ranked = []
-    for other, similarity in candidates:
-        if other.id == game.id:
-            continue
+    for other, similarity in others:
         common_genres = sorted(genres & set(other.genres or []))
         common_devs = sorted(devs & set(other.developers or []))
         union = genres | set(other.genres or [])
@@ -116,11 +121,18 @@ def rank_similar(
         text_similarity = similarity if similarity is not None else NEUTRAL_SIMILARITY
         score = text_similarity + 0.3 * jaccard + 0.15 * bool(common_devs)
         reasons = [*(f"разработчик {d}" for d in common_devs), *common_genres]
-        if similarity is not None and similarity >= DESCRIPTION_REASON_SIMILARITY:
+        if other.id in closest:
             reasons.insert(0, "похожее описание")
-        ranked.append(((_has_score(other), score), other, reasons))
+        ranked.append((score, other, reasons))
     ranked.sort(key=lambda item: item[0], reverse=True)
-    return [(other, reasons) for _, other, reasons in ranked[:limit]]
+    if not ranked:
+        return []
+    # Поднимаем игры с оценками только среди близких к лучшему результату.
+    best = ranked[0][0]
+    shortlist = [item for item in ranked[: limit * 2] if item[0] >= best - RELEVANCE_MARGIN]
+    shortlist.sort(key=lambda item: _has_score(item[1]), reverse=True)  # стабильно: внутри групп — по score
+    rest = [item for item in ranked if item not in shortlist]
+    return [(other, reasons) for _, other, reasons in (shortlist + rest)[:limit]]
 
 
 def similar_games(session: Session, game: Game, limit: int = SIMILAR_LIMIT) -> list[tuple[Game, list[str]]]:
