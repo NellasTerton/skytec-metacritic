@@ -227,6 +227,13 @@ async def summarize_backlog(
             await client.aclose()
         if own_llm and llm is not None:
             await llm.aclose()
+    if summaries.get("needed") == 0:
+        # Счётчик отзывов есть, а самих текстов Metacritic не отдаёт (бывает у DLC) — резюмировать
+        # нечего. Такой прогон повторялся бы каждый час пустым, поэтому в мониторинге его не храним.
+        with session_scope(serverless=False) as session:
+            session.delete(session.get_one(Run, run_id))
+        log.info("summary backlog: nothing to summarize for %s", slugs)
+        return None
     _update_run(
         run_id,
         status="success",
