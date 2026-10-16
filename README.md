@@ -5,6 +5,12 @@
 - **Telegram-бот (сайт как Mini App):** [@skytecmetacriticbot](https://t.me/skytecmetacriticbot)
 - **Репозиторий:** https://github.com/NellasTerton/skytec-metacritic
 
+<p>
+  <a href="docs/img/list.jpg"><img src="docs/img/list.jpg" width="32%" alt="Список игр: поиск, фильтр по платформе, сортировка"></a>
+  <a href="docs/img/game.jpg"><img src="docs/img/game.jpg" width="32%" alt="Карточка игры: платформы с оценками, резюме отзывов, летсплей"></a>
+  <a href="docs/img/monitor.jpg"><img src="docs/img/monitor.jpg" width="32%" alt="Мониторинг: первый прогон дня со списком игр"></a>
+</p>
+
 Сервис раз в час забирает новые игры с Metacritic, сохраняет карточки с оценками по
 платформам, пишет LLM-резюме отзывов критиков и игроков, находит летсплей и пересказывает
 мнение блогера, показывает всё это на сайте. Тестовое задание Skytec Games (AI Automation
@@ -53,11 +59,6 @@ New Releases по составу и датам выхода.
 - **Секреты не попадают в логи** — ключ YouTube в заголовке, URL запросов не логируются, вебхук бота с секретным токеном; проверено по логам Actions и Vercel, истории git и переписке.
 - **Тесты и CI** — 103 офлайн-теста на сохранённых ответах Metacritic плюс тесты на настоящей БД; ruff и pytest в [ci.yml](.github/workflows/ci.yml).
 - **Документация** — исследование внутреннего API Metacritic ([docs/metacritic-research.md](docs/metacritic-research.md)) и обоснование инфраструктуры ([docs/infrastructure.md](docs/infrastructure.md)).
-
-Уже описано выше или ниже: начальное наполнение — врезка в начале README; надёжный ежечасный
-запуск через cron-job.org — [Деплой](#деплой) и
-[docs/infrastructure.md](docs/infrastructure.md#ежечасный-запуск-cron-joborg); что не сделано
-или упирается в бесплатные тарифы — [Ограничения](#ограничения).
 
 ## Архитектура
 
