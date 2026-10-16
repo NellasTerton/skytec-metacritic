@@ -50,3 +50,32 @@ async def test_persistent_rate_limit_raises_rate_limited_with_quota_name():
         with pytest.raises(EmbeddingRateLimited, match="embed_content_requests"):
             await embed_texts(client, "key", "m", ["text"], sleep=sleep)
     assert len(calls) == 3
+
+
+async def test_daily_quota_is_not_retried():
+    daily = {
+        "error": {
+            "code": 429,
+            "details": [
+                {
+                    "violations": [
+                        {
+                            "quotaMetric": "embed_content_free_tier_requests",
+                            "quotaId": "EmbedContentRequestsPerDayPerProjectPerModel-FreeTier",
+                        }
+                    ]
+                },
+                {"retryDelay": "40s"},
+            ],
+        }
+    }
+    t, calls = transport([(429, daily)])
+    waits = []
+
+    async def sleep(s):
+        waits.append(s)
+
+    async with httpx.AsyncClient(transport=t) as client:
+        with pytest.raises(EmbeddingRateLimited, match="PerDay"):
+            await embed_texts(client, "key", "m", ["text"], sleep=sleep)
+    assert len(calls) == 1 and waits == []

@@ -83,7 +83,8 @@ async def embed_texts(
             )
             if response.status_code in (429, 503):
                 wait, quota = _rate_limit_info(response)
-                if attempt < RETRIES - 1:
+                # Суточная квота до полуночи по Тихоокеанскому времени не вернётся — не ждём зря.
+                if attempt < RETRIES - 1 and "PerDay" not in quota:
                     log.warning("embeddings HTTP %s (%s), waiting %.0f s", response.status_code, quota, wait)
                     await sleep(wait)
                     continue
