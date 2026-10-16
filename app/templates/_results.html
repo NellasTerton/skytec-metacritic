@@ -1,8 +1,5 @@
 {% from "_macros.html" import scores, cover %}
-<p class="found">{{ result.total }} {{ result.total | plural('игра', 'игры', 'игр') }}{% if scored_only %} с оценками{% endif %}</p>
-{% if result.games %}
-<div class="grid">
-  {% for game in result.games %}
+{% macro game_card(game, ago=false) %}
   {% set p = (game.platforms | selectattr('slug', 'equalto', platform) | first) if platform else none %}
   {% set plats = game.platforms %}
   {% if p %}{% set plats = [p] + (game.platforms | rejectattr('slug', 'equalto', platform) | list) %}{% endif %}
@@ -12,7 +9,11 @@
       <h3 title="{{ game.title }}">{{ game.title }}</h3>
       {{ scores(p.metascore if p else game.metascore, p.userscore if p else game.userscore) }}
       <div class="meta">
+        {% if ago %}
+        <span class="ago"><svg class="icon"><use href="#i-calendar"/></svg>{{ game.release_date | released_ago(today) }}</span>
+        {% else %}
         <span><svg class="icon"><use href="#i-calendar"/></svg>{{ game.release_date.strftime('%d.%m.%Y') if game.release_date else 'дата неизвестна' }}</span>
+        {% endif %}
         {% if game.developers %}<span><svg class="icon"><use href="#i-studio"/></svg>{{ game.developers[0] }}</span>{% endif %}
       </div>
       <div class="plats">
@@ -23,7 +24,12 @@
       </div>
     </div>
   </a>
-  {% endfor %}
+{% endmacro %}
+
+{% if result.games %}
+<p class="found">{{ result.total }} {{ result.total | plural('игра', 'игры', 'игр') }} с оценками</p>
+<div class="grid">
+  {% for game in result.games %}{{ game_card(game) }}{% endfor %}
 </div>
 <div class="pager">
   {% if result.pages > 1 %}
@@ -40,6 +46,19 @@
   {% set first = (result.page - 1) * page_size + 1 %}
   <span class="showing">Показано {{ first }}–{{ first + result.games | length - 1 }} из {{ result.total }}</span>
 </div>
-{% else %}
-  <div class="card muted">Ничего не найдено.{% if scored_only %} Возможно, игра есть среди игр без оценок — снимите галочку «Только с оценками».{% endif %}</div>
+{% elif not fresh %}
+  <div class="card muted">Ничего не найдено.</div>
+{% endif %}
+
+{% if fresh %}
+<section class="fresh-block">
+  <p class="found">Свежие релизы, оценок пока нет</p>
+  <p class="lead">{{ fresh_total }} {{ fresh_total | plural('игра', 'игры', 'игр') }}: Metacritic ещё не опубликовал оценки. Проверяем каждый день.</p>
+  <div class="grid">
+    {% for game in fresh %}{{ game_card(game, ago=true) }}{% endfor %}
+  </div>
+  {% if fresh_total > fresh | length and fresh_limit < fresh_max %}
+  <div class="more"><a href="{{ page_url(result.page, fresh_limit + fresh_step) }}">Показать ещё</a></div>
+  {% endif %}
+</section>
 {% endif %}

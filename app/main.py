@@ -32,8 +32,11 @@ templates.env.filters["short_platform"] = short_platform
 templates.env.filters["plural"] = queries.plural
 templates.env.filters["views"] = queries.format_views
 templates.env.filters["duration"] = queries.format_duration
+templates.env.filters["released_ago"] = queries.released_ago
 templates.env.globals["page_window"] = queries.page_window
 templates.env.globals["page_size"] = queries.PAGE_SIZE
+templates.env.globals["fresh_step"] = queries.FRESH_STEP
+templates.env.globals["fresh_max"] = queries.FRESH_MAX
 templates.env.filters["initials"] = lambda title: "".join(w[0] for w in (title or "?").split()[:2]).upper()
 
 
@@ -85,31 +88,36 @@ def index(
     platform: str = "",
     sort: str = "metascore",
     page: int = 1,
-    all: int = 0,
+    fresh: int = queries.FRESH_STEP,
     partial: int = 0,
 ) -> HTMLResponse:
     if sort not in queries.SORTS:
         sort = "metascore"
-    scored_only = not all
+    fresh = min(max(fresh, queries.FRESH_STEP), queries.FRESH_MAX)
+    today = datetime.now(ZoneInfo(get_settings().service_tz)).date()
     context = {
         "nav": "games",
         "q": q,
         "platform": platform,
         "sort": sort,
         "sorts": queries.SORTS,
-        "scored_only": scored_only,
+        "today": today,
+        "fresh_limit": fresh,
     }
 
-    def page_url(n: int) -> str:
-        params = {"q": q, "platform": platform, "sort": sort, "all": all, "page": n}
-        return "/?" + urlencode({k: v for k, v in params.items() if v})
+    def page_url(n: int, fresh_limit: int = fresh) -> str:
+        params = {"q": q, "platform": platform, "sort": "" if sort == "metascore" else sort, "page": n}
+        if fresh_limit != queries.FRESH_STEP:
+            params["fresh"] = fresh_limit
+        return "/?" + urlencode({k: v for k, v in params.items() if v and not (k == "page" and v == 1)})
 
     try:
         with session_scope() as session:
-            context["result"] = queries.list_games(
-                session, q=q, platform=platform, sort=sort, scored_only=scored_only, page=page
+            context["result"] = queries.list_games(session, q=q, platform=platform, sort=sort, page=page)
+            context["fresh"], context["fresh_total"] = queries.fresh_releases(
+                session, today=today, q=q, platform=platform, limit=fresh
             )
-            context["platforms"] = queries.platform_options(session, scored_only=scored_only)
+            context["platforms"] = queries.platform_options(session)
             if not partial:
                 context["hero_image"] = queries.hero_image(session)
     except DatabaseNotConfigured:

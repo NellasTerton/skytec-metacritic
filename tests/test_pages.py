@@ -41,6 +41,17 @@ def fake_db(monkeypatch):
     )
     monkeypatch.setattr(queries, "platform_options", lambda s, **kw: [("playstation-5", "PlayStation 5", 21)])
     monkeypatch.setattr(queries, "hero_image", lambda s: "https://example.test/banner.jpg")
+    fresh = make_game(99)
+    fresh.slug, fresh.metascore, fresh.userscore = "fresh-one", None, None
+    fresh.release_date = dt.date(2026, 10, 10)
+    calls = []
+
+    def fake_fresh(s, **kw):
+        calls.append(kw)
+        return [fresh], 30
+
+    monkeypatch.setattr(queries, "fresh_releases", fake_fresh)
+    return calls
 
 
 def test_list_page_renders(fake_db):
@@ -49,6 +60,27 @@ def test_list_page_renders(fake_db):
     assert "Показано 49–72 из 121" in html
     assert 'aria-current="page">3<' in html and ">6</a>" in html and "…" in html
     assert "banner.jpg" in html and "Critics" in html and "Users" in html
+    assert "Только с оценками" not in html
+
+
+def test_fresh_releases_block_below_scored(fake_db):
+    html = TestClient(main.app).get("/", params={"q": "x"}).text
+    assert html.index("121 игра с оценками") < html.index("Свежие релизы, оценок пока нет")
+    assert "30 игр" in html and 'href="/game/fresh-one"' in html
+    assert "вышла " in html and "назад" in html
+    # «Показать ещё» сохраняет поиск и увеличивает блок на шаг.
+    assert 'href="/?q=x&amp;fresh=48"' in html
+    assert fake_db[-1]["q"] == "x" and fake_db[-1]["limit"] == queries.FRESH_STEP
+
+
+def test_released_ago():
+    today = dt.date(2026, 10, 16)
+    assert queries.released_ago(today, today) == "вышла сегодня"
+    assert queries.released_ago(dt.date(2026, 10, 15), today) == "вышла вчера"
+    assert queries.released_ago(dt.date(2026, 10, 13), today) == "вышла 3 дня назад"
+    assert queries.released_ago(dt.date(2026, 10, 5), today) == "вышла 11 дней назад"
+    assert queries.released_ago(dt.date(2026, 9, 25), today) == "вышла 21 день назад"
+    assert queries.released_ago(None, today) == "дата выхода неизвестна"
 
 
 def test_platform_filter_highlights_platform(fake_db):

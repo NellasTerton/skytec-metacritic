@@ -57,6 +57,8 @@ def main(argv: list[str] | None = None) -> int:
     rc_p.add_argument("--force", action="store_true", help="run even if already done today")
     emb_p = sub.add_parser("embeddings", help="description embeddings for similar games")
     emb_p.add_argument("--limit", type=int, default=300)
+    seed_p = sub.add_parser("seed", help="one-off: add the latest scored games beyond New Releases")
+    seed_p.add_argument("--count", type=int, default=200)
     game_p = sub.add_parser("game", help="print parsed game as JSON")
     game_p.add_argument("slug")
     sub.add_parser("new-releases", help="print New Releases")
@@ -96,6 +98,10 @@ def main(argv: list[str] | None = None) -> int:
         from app.worker.runner import letsplay_backlog
 
         asyncio.run(letsplay_backlog(args.limit))
+    elif args.command == "seed":
+        from app.worker.runner import seed_scored
+
+        asyncio.run(seed_scored(args.count))
     elif args.command == "game":
         asyncio.run(_print_game(args.slug))
     elif args.command == "new-releases":

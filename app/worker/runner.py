@@ -331,6 +331,61 @@ async def letsplay_backlog(limit: int, *, trigger: str = "backfill") -> int | No
     return run_id
 
 
+SEED_START_OFFSET = 20  # первые 20 — это New Releases, их и так берёт ежечасный прогон
+SEED_MAX_PAGES = 20
+
+
+async def seed_scored(count: int, *, client: MetacriticClient | None = None, trigger: str = "seed") -> int | None:
+    """Разовое начальное наполнение: `count` последних игр с оценками, которых ещё нет в БД.
+
+    Не часть ежечасной логики из ТЗ: берёт finder с metaScoreMin=1 начиная с 21-й позиции, чтобы
+    в каталоге сразу было что посмотреть. Резюме и эмбеддинги потом пишут команды summarize и
+    embeddings, медиа (трейлер, скриншоты) — этот же прогон.
+    """
+    settings = get_settings()
+    day = service_today()
+    own_client = client is None
+    client = client or MetacriticClient(
+        concurrency=settings.metacritic_concurrency, timeout=settings.metacritic_timeout
+    )
+    try:
+        picked: dict[str, str] = {}
+        offset, pages = SEED_START_OFFSET, 0
+        while len(picked) < count and pages < SEED_MAX_PAGES:
+            page = await client.scored_newest(offset)
+            pages += 1
+            if not page.items:
+                break
+            slugs = [item.slug for item in page.items]
+            with session_scope(serverless=False) as session:
+                known = store.known_slugs(session, slugs)
+            for slug in slugs:
+                if slug not in known and len(picked) < count:
+                    picked[slug] = "seed"
+            offset += len(page.items)
+        with session_scope(serverless=False) as session:
+            run = Run(trigger=trigger, status="running", phase="seed", games_found=len(picked))
+            run.heartbeat_at = store.now()
+            run.details = {"day": day.isoformat(), "slugs": list(picked), "last_offset": offset}
+            session.add(run)
+            session.flush()
+            run_id = run.id
+        log.info("run #%d: seeding %d scored games (finder offset up to %d)", run_id, len(picked), offset)
+        games = await _collect(run_id, day, client, picked)
+        with session_scope(serverless=False) as session:
+            media_todo = store.games_needing_media(session, len(games), [g.slug for g in games])
+        await _media(run_id, media_todo)
+    except Exception as e:
+        if "run_id" in locals():
+            _update_run(run_id, status="failed", finished_at=store.now(), message=f"{type(e).__name__}: {e}"[:2000])
+        raise
+    finally:
+        if own_client:
+            await client.aclose()
+    _update_run(run_id, status="success", finished_at=store.now(), message=f"начальное наполнение: {len(games)} игр")
+    return run_id
+
+
 RECHECK_MAX_AGE_DAYS = 30
 
 

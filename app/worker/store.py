@@ -31,6 +31,10 @@ def save_cursor(session: Session, day: date, cursor: CrawlCursor) -> None:
         state.phase, state.next_offset = cursor.phase, cursor.next_offset
 
 
+def known_slugs(session: Session, slugs: list[str]) -> set[str]:
+    return set(session.scalars(select(Game.slug).where(Game.slug.in_(slugs))))
+
+
 def processed_slugs(session: Session, day: date) -> set[str]:
     return set(session.scalars(select(RunItem.game_slug).where(RunItem.day == day)))
 

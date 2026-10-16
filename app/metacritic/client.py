@@ -106,6 +106,10 @@ class MetacriticClient:
         """Блок New Releases на /game/ — только игры с Metascore."""
         return (await self._finder(offset=0, limit=limit, metaScoreMin=1)).items
 
+    async def scored_newest(self, offset: int, limit: int = FINDER_MAX_LIMIT) -> Page[GameListItem]:
+        """Как New Releases (только с Metascore, новые сверху), но любая страница, а не первые 20."""
+        return await self._finder(offset=offset, limit=limit, metaScoreMin=1)
+
     async def browse_newest(self, offset: int = 0, limit: int = FINDER_MAX_LIMIT) -> Page[GameListItem]:
         """SEE ALL → Newest. Внимание: внутри одной даты порядок нестабилен, страницы пересекаются."""
         return await self._finder(offset=offset, limit=limit)

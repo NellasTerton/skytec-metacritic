@@ -89,8 +89,9 @@
 <script>
 (() => {
   const TRIGGERS = { cron: 'по расписанию', schedule: 'cron GitHub', web: 'кнопка', manual: 'вручную',
-    backfill: 'дозаполнение', test: 'тест', workflow_dispatch: 'dispatch (cron-job.org или кнопка)' };
-  const PHASES = { new_releases: 'New Releases', browse: 'SEE ALL', summaries: 'резюме' };
+    backfill: 'дозаполнение', seed: 'разово', daily: 'раз в сутки', test: 'тест', workflow_dispatch: 'dispatch (cron-job.org или кнопка)' };
+  const PHASES = { new_releases: 'New Releases', browse: 'SEE ALL', summaries: 'резюме', seed: 'начальное наполнение',
+    recheck: 'перепроверка без оценок', embeddings: 'эмбеддинги', media: 'медиа', letsplays: 'летсплеи' };
   const STATUSES = { running: 'идёт', success: 'успешно', failed: 'ошибка', stale: 'завис', queued: 'в очереди',
     in_progress: 'работает', idle: 'свободен', failure: 'ошибка', cancelled: 'отменён' };
   const $ = (id) => document.getElementById(id);

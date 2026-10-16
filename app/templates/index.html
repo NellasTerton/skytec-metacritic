@@ -21,11 +21,15 @@
   .field input, .field select { width: 100%; height: 46px; padding-left: 40px; background: color-mix(in srgb, var(--card) 85%, transparent);
     backdrop-filter: blur(6px); }
   .field select { appearance: none; -webkit-appearance: none; padding-right: 34px; cursor: pointer; text-overflow: ellipsis; }
-  .options { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 12px; }
-  .toggle { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted); cursor: pointer; user-select: none; }
-  .toggle input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
 
   .found { margin: 0 0 12px; font-size: 17px; font-weight: 700; }
+  .fresh-block { margin-top: 32px; }
+  .fresh-block .found { margin-bottom: 4px; }
+  .fresh-block .lead { margin: 0 0 12px; color: var(--muted); font-size: 14px; }
+  .ago { color: var(--accent-2); font-weight: 600; }
+  .more { display: flex; justify-content: center; margin-top: 14px; }
+  .more a { padding: 9px 18px; border: 1px solid var(--line); border-radius: 999px; color: var(--fg); font-size: 14px; }
+  .more a:hover { border-color: var(--accent); }
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
   .game { display: flex; gap: 12px; padding: 10px; color: inherit; height: 152px; transition: border-color .15s, transform .15s;
     box-shadow: var(--shadow); }
@@ -89,9 +93,6 @@
       <svg class="icon chevron"><use href="#i-chevron"/></svg>
     </label>
   </form>
-  <div class="options">
-    <label class="toggle"><input type="checkbox" form="filters" name="scored" {{ 'checked' if scored_only }}> Только с оценками</label>
-  </div>
   {% endif %}
 </section>
 {% if not configured %}
@@ -106,13 +107,11 @@
   const form = document.getElementById('filters');
   const results = document.getElementById('results');
   if (!form) return;
-  const scored = document.querySelector('input[name=scored]');
   let timer, controller;
 
   function query() {
     const p = new URLSearchParams();
-    for (const [k, v] of new FormData(form)) if (v && k !== 'scored') p.set(k, v);
-    if (!scored.checked) p.set('all', '1');
+    for (const [k, v] of new FormData(form)) if (v) p.set(k, v);
     return p;
   }
 
@@ -136,14 +135,14 @@
   const refresh = () => load(query());
   form.q.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(refresh, 250); });
   form.addEventListener('change', (e) => { if (e.target.name !== 'q') refresh(); });
-  scored.addEventListener('change', refresh);
   form.addEventListener('submit', (e) => { e.preventDefault(); clearTimeout(timer); refresh(); });
-  // Пагинация без перезагрузки страницы.
+  // Пагинация и «Показать ещё» без перезагрузки страницы.
   results.addEventListener('click', (e) => {
-    const a = e.target.closest('.pages a');
+    const a = e.target.closest('.pages a, .more a');
     if (!a) return;
     e.preventDefault();
-    load(new URL(a.href).searchParams).then(() => results.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+    const done = load(new URL(a.href).searchParams);
+    if (a.closest('.pages')) done.then(() => results.scrollIntoView({ behavior: 'smooth', block: 'start' }));
   });
 })();
 </script>

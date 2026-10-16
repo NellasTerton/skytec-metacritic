@@ -22,6 +22,14 @@ async def test_new_releases_and_browse(transport):
     assert all(r.headers["user-agent"] == BROWSER_UA for r in transport.calls)
 
 
+async def test_scored_newest_pages_past_new_releases(transport):
+    async with make_client(transport) as c:
+        await c.scored_newest(offset=20)
+    call = next(r for r in transport.calls if r.url.path == "/finder/metacritic/web")
+    assert call.url.params["metaScoreMin"] == "1" and call.url.params["offset"] == "20"
+    assert call.url.params["sortBy"] == "-releaseDate" and call.url.params["limit"] == "50"
+
+
 async def test_game_fills_userscores_for_all_platforms(transport):
     async with make_client(transport) as c:
         game = await c.game("elden-ring")
