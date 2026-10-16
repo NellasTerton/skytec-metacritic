@@ -23,6 +23,9 @@ GitHub Actions (cron + workflow_dispatch)          Vercel (FastAPI)
 - `app/main.py` — сайт (Vercel находит `app` автоматически): список с поиском при вводе,
   фильтром по платформе и сортировкой, карточка игры с похожими играми, `/monitor` —
   мониторинг воркера в реальном времени и кнопка «Запустить сейчас».
+- `app/telegram.py` — бот [@skytecmetacriticbot](https://t.me/skytecmetacriticbot): на /start
+  приветствие с кнопкой, открывающей сайт как Telegram Mini App. Внутри Telegram сайт берёт цвета
+  темы клиента, показывает системную «Назад» и открывает внешние ссылки в браузере.
 - `app/worker/` — воркер; запускается в GitHub Actions ([.github/workflows/worker.yml](.github/workflows/worker.yml)).
 - Почему так и какие у бесплатных тарифов лимиты: [docs/infrastructure.md](docs/infrastructure.md).
 
@@ -59,3 +62,6 @@ python -m scripts.capture_fixtures   # обновить фикстуры
   отключить Vercel Authentication, иначе сайт будет закрыт логином.
 - **Ежечасный запуск:** задача на cron-job.org раз в час делает `GET https://<сайт>/api/cron`
   с заголовком `Authorization: Bearer <CRON_SECRET>` (подробно в docs/infrastructure.md).
+- **Telegram-бот (необязательно):** `TELEGRAM_BOT_TOKEN` и `TELEGRAM_WEBHOOK_SECRET` (любая
+  случайная строка) в Vercel, затем один раз `python -m scripts.telegram_setup` с теми же
+  переменными — он ставит вебхук, команду /start, описание бота и кнопку меню с Mini App.
