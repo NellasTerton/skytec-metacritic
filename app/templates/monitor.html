@@ -33,6 +33,22 @@
   .run-row .what { min-width: 0; }
   .run-row .what .sub { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .run-row .when { text-align: right; font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .run-games-btn { margin-top: 4px; padding: 2px 10px; font-size: 12px; border-radius: 999px; }
+  .run-games-btn .chev { display: inline-block; transition: transform .15s; }
+  .run-games-btn[aria-expanded="true"] .chev { transform: rotate(90deg); }
+  .games-panel { grid-column: 1 / -1; margin: 6px 0 2px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .games-panel .g { display: grid; grid-template-columns: 30px 1fr auto auto; gap: 8px; align-items: center;
+    padding: 6px 10px; font-size: 13px; border-top: 1px solid var(--line); }
+  .games-panel .g:first-child { border-top: 0; }
+  .games-panel .g .n { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .games-panel .g a { color: var(--fg); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .games-panel .g a:hover { color: var(--accent-2); }
+  .games-panel .g .src { font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .games-panel .note { padding: 8px 10px; font-size: 12px; color: var(--muted); }
+  .chip.new { background: var(--good); }
+  .chip.updated { background: var(--accent); }
+  .first-run { margin-bottom: 12px; }
+  .first-run p { margin: 0 0 6px; font-size: 13px; }
   .pulse { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--good); margin-right: 6px;
     animation: pulse 1.6s infinite; vertical-align: middle; }
   .pulse.off { background: var(--none); animation: none; }
@@ -45,6 +61,8 @@
     .run-row .what { grid-column: 2 / 4; grid-row: 1; }
     .run-row .when { grid-column: 3; grid-row: 2; }
     .run-row .id { grid-row: span 2; }
+    .games-panel .g { grid-template-columns: 24px 1fr auto; }
+    .games-panel .g .src { display: none; }
   }
 </style>
 {% endblock %}
@@ -80,6 +98,14 @@
   <div id="c-body" class="kv muted">загрузка…</div>
 </div>
 
+<div class="card first-run" id="first-card" hidden>
+  <h3>Первый прогон сегодня</h3>
+  <p class="muted">Его игры по порядку совпадают с блоком New Releases на
+    <a href="https://www.metacritic.com/game/" target="_blank" rel="noopener">metacritic.com/game/</a>
+    на момент прогона (00:05 МСК). Раскройте список, чтобы сверить.</p>
+  <div class="runs" id="first"></div>
+</div>
+
 <div class="card history">
   <h3>История прогонов</h3>
   <div class="runs" id="runs"></div>
@@ -93,7 +119,7 @@
   const PHASES = { new_releases: 'New Releases', browse: 'SEE ALL', summaries: 'резюме', seed: 'начальное наполнение',
     recheck: 'перепроверка без оценок', embeddings: 'эмбеддинги', media: 'медиа', letsplays: 'летсплеи' };
   const STATUSES = { running: 'идёт', success: 'успешно', failed: 'ошибка', stale: 'завис', queued: 'в очереди',
-    in_progress: 'работает', idle: 'свободен', failure: 'ошибка', cancelled: 'отменён' };
+    in_progress: 'работает', idle: 'свободен', failure: 'ошибка', cancelled: 'отменён', new: 'новая', updated: 'обновлена' };
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const chip = (s) => `<span class="chip ${esc(s)}">${esc(STATUSES[s] || s)}</span>`;
@@ -157,14 +183,11 @@
         <div class="muted" style="font-size:13px">${esc(cur.message || '')}</div>`;
     }
 
-    $('runs').innerHTML = runs.map((r) => `
-      <div class="run-row">
-        <span class="id">#${r.id}</span>
-        <span class="status">${chip(r.status)}</span>
-        <span class="what">${esc(TRIGGERS[r.trigger] || r.trigger)} · ${esc(PHASES[r.phase] || r.phase || '—')}
-          <div class="sub">игр ${r.processed}/${r.found}${r.failed ? `, ошибок ${r.failed}` : ''} · резюме ${r.summaries_done}</div></span>
-        <span class="when">${dateTime(r.started_at)}<br>${dur(r.duration_s)}</span>
-      </div>`).join('') || '<div class="muted">Прогонов ещё не было.</div>';
+    lastRuns = runs; lastFirst = data.first_today;
+    drawRuns();
+    for (const r of [...runs, data.first_today].filter(Boolean)) {
+      if (openRuns.has(r.id) && (r.status === 'running' || !gamesCache.has(r.id))) loadGames(r.id);
+    }
 
     const btn = $('run-btn');
     if (!pendingDispatch) {
@@ -172,6 +195,65 @@
       $('run-note').textContent = data.run_blocker || (data.dispatch_configured ? '' : 'запуск не настроен');
     }
   }
+
+  // --- игры прогона: раскрываются по клику, грузятся отдельно и кешируются -------------
+  const openRuns = new Set(), gamesCache = new Map(), gamesLoading = new Set();
+  let lastRuns = [], lastFirst = null, drawn = {};
+
+  function gamesPanel(id) {
+    const data = gamesCache.get(id);
+    if (!data) return '<div class="games-panel"><div class="note">загрузка…</div></div>';
+    if (!data.games.length) return '<div class="games-panel"><div class="note">Список игр не сохранялся.</div></div>';
+    return `<div class="games-panel">${data.games.map((g) => `
+      <div class="g">
+        <span class="n">${g.position}</span>
+        <a href="${esc(g.url)}" target="_blank" rel="noopener" title="${esc(g.slug)}">${esc(g.title)} ↗</a>
+        <span class="src">${esc(g.source || '')}</span>
+        ${g.status ? `<span title="${esc(g.error || '')}">${chip(g.status)}</span>` : '<span></span>'}
+      </div>`).join('')}</div>`;
+  }
+
+  function runRow(r) {
+    const open = openRuns.has(r.id);
+    const btn = r.games_count ? `<button class="run-games-btn" data-run="${r.id}" aria-expanded="${open}">
+        <span class="chev">›</span> Игры (${r.games_count})</button>` : '';
+    return `<div class="run-row">
+        <span class="id">#${r.id}</span>
+        <span class="status">${chip(r.status)}</span>
+        <span class="what">${esc(TRIGGERS[r.trigger] || r.trigger)} · ${esc(PHASES[r.phase] || r.phase || '—')}
+          <div class="sub">игр ${r.processed}/${r.found}${r.failed ? `, ошибок ${r.failed}` : ''} · резюме ${r.summaries_done}</div>${btn}</span>
+        <span class="when">${dateTime(r.started_at)}<br>${dur(r.duration_s)}</span>
+        ${open ? gamesPanel(r.id) : ''}
+      </div>`;
+  }
+
+  // Перерисовываем, только если разметка изменилась: опрос идёт каждые 2,5 с, и иначе клик
+  // по ссылке в раскрытом списке мог бы попасть в момент перерисовки.
+  function draw(id, html) { if (drawn[id] !== html) { $(id).innerHTML = html; drawn[id] = html; } }
+  function drawRuns() {
+    draw('runs', lastRuns.map(runRow).join('') || '<div class="muted">Прогонов ещё не было.</div>');
+    $('first-card').hidden = !lastFirst;
+    if (lastFirst) draw('first', runRow(lastFirst));
+  }
+
+  async function loadGames(id) {
+    if (gamesLoading.has(id)) return;
+    gamesLoading.add(id);
+    try {
+      const r = await fetch(`/api/runs/${id}/games`, { cache: 'no-store' });
+      if (r.ok) gamesCache.set(id, await r.json());
+    } catch (e) { /* попробуем при следующем раскрытии */ }
+    gamesLoading.delete(id);
+    drawRuns();
+  }
+
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('.run-games-btn');
+    if (!btn) return;
+    const id = Number(btn.dataset.run);
+    if (openRuns.has(id)) openRuns.delete(id); else { openRuns.add(id); loadGames(id); }
+    drawRuns();
+  });
 
   let timer = null, pendingDispatch = false;
   async function poll() {

@@ -209,6 +209,19 @@ async def status() -> JSONResponse:
     return JSONResponse(data, headers={"Cache-Control": "no-store"})
 
 
+@app.get("/api/runs/{run_id}/games")
+def run_games(run_id: int) -> JSONResponse:
+    """Игры прогона: название, ссылка на Metacritic, новая/обновлена — раскрывается в мониторинге."""
+    try:
+        with session_scope() as session:
+            data = queries.run_games(session, run_id)
+    except DatabaseNotConfigured:
+        return JSONResponse({"error": "database is not configured"}, status_code=503)
+    if data is None:
+        return JSONResponse({"error": "run not found"}, status_code=404)
+    return JSONResponse(data, headers={"Cache-Control": "no-store"})
+
+
 @app.post("/api/run")
 async def run_now() -> JSONResponse:
     """Кнопка «Запустить сейчас»: workflow_dispatch, если воркер сейчас не занят."""

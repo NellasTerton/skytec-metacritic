@@ -90,3 +90,24 @@ async def test_latest_worker_run_parses_and_caches():
 
 async def test_latest_worker_run_without_token():
     assert await github.latest_worker_run(Settings(_env_file=None)) is None
+
+
+def test_run_games_endpoint(monkeypatch):
+    from contextlib import contextmanager
+
+    from app import queries
+
+    @contextmanager
+    def scope(*args, **kwargs):
+        yield None
+
+    monkeypatch.setattr(main, "session_scope", scope)
+    monkeypatch.setattr(queries, "run_games", lambda s, run_id: {"id": run_id, "games": []} if run_id == 7 else None)
+    client = TestClient(main.app)
+    assert client.get("/api/runs/7/games").json() == {"id": 7, "games": []}
+    assert client.get("/api/runs/8/games").status_code == 404
+
+
+def test_monitor_page_has_first_run_card():
+    html = TestClient(main.app).get("/monitor").text
+    assert "Первый прогон сегодня" in html and "metacritic.com/game/" in html and "run-games-btn" in html

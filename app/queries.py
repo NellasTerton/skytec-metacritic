@@ -219,7 +219,7 @@ def auto_run_blocker(session: Session, min_interval_minutes: int) -> str | None:
     return None
 
 
-def _run_dict(run: Run, now: datetime) -> dict:
+def _run_dict(run: Run, now: datetime, games_count: int = 0) -> dict:
     stale = run.status == "running" and (run.heartbeat_at or run.started_at) < now - timedelta(
         minutes=STALE_RUN_MINUTES
     )
@@ -241,6 +241,7 @@ def _run_dict(run: Run, now: datetime) -> dict:
         "summaries_needed": summaries.get("needed", 0),
         "summaries_skipped": summaries.get("skipped"),
         "message": run.message,
+        "games_count": games_count,
     }
 
 
@@ -259,7 +260,81 @@ def monitor_status(session: Session, *, day_start: datetime, recent: int = 15) -
         )
         or 0,
     }
-    return {"now": now.isoformat(), "totals": totals, "runs": [_run_dict(r, now) for r in runs]}
+    # Первый прогон сбора за день (New Releases) — чтобы сверить его с metacritic.com/game/,
+    # даже когда он уже ушёл из последних 15.
+    first_today = session.scalars(
+        select(Run).where(Run.started_at >= day_start, Run.phase.in_(COLLECT_PHASES)).order_by(Run.started_at).limit(1)
+    ).first()
+    counts = _games_counts(session, [*runs, *([first_today] if first_today else [])])
+    return {
+        "now": now.isoformat(),
+        "totals": totals,
+        "runs": [_run_dict(r, now, counts.get(r.id, 0)) for r in runs],
+        "first_today": _run_dict(first_today, now, counts.get(first_today.id, 0)) if first_today else None,
+    }
+
+
+COLLECT_PHASES = ("new_releases", "browse")
+METACRITIC_GAME_URL = "https://www.metacritic.com/game/{slug}/"
+SOURCES = {
+    "new_releases": "New Releases",
+    "browse": "SEE ALL",
+    "recheck": "перепроверка",
+    "seed": "начальное наполнение",
+}
+
+
+def _games_counts(session: Session, runs: list[Run]) -> dict[int, int]:
+    """Сколько игр раскрывается у прогона: строки run_items, а у прогонов без них — details.slugs."""
+    ids = [r.id for r in runs]
+    counts = dict(
+        session.execute(select(RunItem.run_id, func.count()).where(RunItem.run_id.in_(ids)).group_by(RunItem.run_id))
+        .tuples()
+        .all()
+    )
+    for run in runs:
+        counts.setdefault(run.id, len((run.details or {}).get("slugs") or []))
+    return counts
+
+
+def run_games(session: Session, run_id: int) -> dict | None:
+    """Игры прогона в порядке выборки (для New Releases — порядок блока на metacritic.com/game/).
+
+    status: new — игра появилась в базе в этом прогоне, updated — уже была и обновлена,
+    failed — карточку забрать не удалось. У прогонов без сбора (резюме и т. п.) status = None.
+    """
+    run = session.get(Run, run_id)
+    if run is None:
+        return None
+    items = session.scalars(select(RunItem).where(RunItem.run_id == run_id).order_by(RunItem.id)).all()
+    order = (run.details or {}).get("slugs") or []
+    slugs = list(dict.fromkeys([*order, *(i.game_slug for i in items)]))
+    by_slug = {i.game_slug: i for i in items}
+    games = {
+        g.slug: g
+        for g in session.execute(select(Game.slug, Game.title, Game.first_seen_at).where(Game.slug.in_(slugs))).all()
+    }
+    out = []
+    for position, slug in enumerate(slugs, 1):
+        item, game = by_slug.get(slug), games.get(slug)
+        status = None
+        if item is not None:
+            if item.status != "success":
+                status = "failed"
+            else:
+                status = "new" if game is not None and game.first_seen_at >= run.started_at else "updated"
+        out.append(
+            {
+                "position": position,
+                "slug": slug,
+                "title": game.title if game else slug,
+                "url": METACRITIC_GAME_URL.format(slug=slug),
+                "source": SOURCES.get(item.source, item.source) if item else None,
+                "status": status,
+                "error": item.error if item else None,
+            }
+        )
+    return {"id": run.id, "phase": run.phase, "started_at": run.started_at.isoformat(), "games": out}
 
 
 def hero_image(session: Session) -> str | None:

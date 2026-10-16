@@ -162,3 +162,30 @@ async def test_daily_recheck_refetches_young_unscored_games_once(isolated_day):
         assert s.scalars(select(Game.metascore).where(Game.slug == old)).one() is None  # старше 30 дней
         items = s.scalars(select(RunItem).where(RunItem.run_id == run_id)).all()
         assert [(i.game_slug, i.source) for i in items] == [(young, "recheck")]
+
+
+def test_run_games_marks_new_updated_failed_in_pick_order(isolated_day):
+    from app import queries
+
+    tag, created = isolated_day
+    old, fresh, broken = f"test-{tag}-old", f"test-{tag}-fresh", f"test-{tag}-broken"
+    with session_scope(serverless=False) as s:
+        s.add(Game(slug=old, title="Old One"))
+    with session_scope(serverless=False) as s:
+        run = Run(trigger="test", status="success", phase="new_releases", details={"slugs": [fresh, old, broken]})
+        s.add(run)
+        s.flush()
+        created.append(run.id)
+        s.add(Game(slug=fresh, title="Fresh One"))
+        for slug, status in ((old, "success"), (broken, "failed"), (fresh, "success")):
+            s.add(RunItem(run_id=run.id, day=TEST_DAY, game_slug=slug, source="new_releases", status=status))
+        run_id = run.id
+    with session_scope(serverless=False) as s:
+        games = queries.run_games(s, run_id)["games"]
+        s.execute(delete(RunItem).where(RunItem.run_id == run_id))
+    assert [(g["position"], g["title"], g["status"], g["source"]) for g in games] == [
+        (1, "Fresh One", "new", "New Releases"),
+        (2, "Old One", "updated", "New Releases"),
+        (3, broken, "failed", "New Releases"),
+    ]
+    assert games[0]["url"] == f"https://www.metacritic.com/game/{fresh}/"
