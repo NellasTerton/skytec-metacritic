@@ -11,3 +11,6 @@ venv/
 *.pdf
 .pytest_cache/
 .ruff_cache/
+
+# локальные настройки Claude Code / превью
+.claude/

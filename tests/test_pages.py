@@ -143,3 +143,25 @@ def test_game_card_renders_letsplay(monkeypatch):
     game.letsplay.method, game.letsplay.transcript = "video", None
     html = TestClient(main.app).get("/game/game-1").text
     assert "Расшифровка речи блогера" not in html and "Цитаты блогера" in html
+
+
+def test_game_card_shows_metacritic_video_first(monkeypatch):
+    @contextmanager
+    def scope(*args, **kwargs):
+        yield None
+
+    game = make_game(1)
+    game.summaries, game.letsplay = [], None
+    # Медиа, собранное раньше: YouTube был первым.
+    game.media = {
+        "videos": [
+            {"source": "youtube", "title": "YT", "embed_url": "https://www.youtube.com/embed/y", "url": "y"},
+            {"source": "metacritic", "title": "MC", "embed_url": "https://cdn.jwplayer.com/players/x.html", "url": "x"},
+        ]
+    }
+    monkeypatch.setattr(main, "session_scope", scope)
+    monkeypatch.setattr(queries, "get_game", lambda s, slug: game)
+    monkeypatch.setattr(queries, "similar_games", lambda s, g: [])
+    html = TestClient(main.app).get("/game/game-1").text
+    assert 'class="poster" type="button" data-embed="https://cdn.jwplayer.com/players/x.html"' in html
+    assert html.index(">Metacritic</button>") < html.index(">YouTube</button>")

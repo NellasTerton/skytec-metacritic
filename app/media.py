@@ -137,5 +137,6 @@ async def collect_media(
     except Exception as e:  # noqa: BLE001 - yt-dlp бросает свои типы ошибок, падать из-за них нельзя
         log.warning("youtube trailer for %r failed: %s", title, e)
     if metacritic_video and metacritic_video.get("embed_url"):
-        media.videos.append({"source": "metacritic", **metacritic_video})
+        # Видео самой карточки Metacritic — первым: это ссылка на видео из ТЗ, YouTube — запасной.
+        media.videos.insert(0, {"source": "metacritic", **metacritic_video})
     return media

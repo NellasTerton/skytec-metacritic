@@ -1,5 +1,7 @@
 {# Видео (YouTube-трейлер, видео Metacritic) и скриншоты (Steam). Плеер грузится только по клику. #}
 {% set videos = (game.media or {}).get('videos') or [] %}
+{# Видео Metacritic первым и для медиа, собранного раньше в другом порядке. #}
+{% set videos = (videos | selectattr('source', 'equalto', 'metacritic') | list) + (videos | rejectattr('source', 'equalto', 'metacritic') | list) %}
 {% if not videos and game.video_url %}
   {% set videos = [{'source': 'metacritic', 'title': game.video_title, 'embed_url': game.video_url, 'url': game.video_url}] %}
 {% endif %}

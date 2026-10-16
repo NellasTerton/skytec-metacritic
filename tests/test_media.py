@@ -74,6 +74,16 @@ async def test_collect_media_survives_source_failures():
     assert [v["source"] for v in media.videos] == ["metacritic"]
 
 
+async def test_collect_media_puts_metacritic_video_first():
+    async def youtube(title):
+        return {"source": "youtube", "embed_url": "https://www.youtube.com/embed/y", "url": "y"}
+
+    mc_video = {"title": "Official trailer", "embed_url": "https://cdn.jwplayer.com/players/x.html", "url": "u"}
+    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(503))) as client:
+        media = await collect_media(client, "Game", mc_video, youtube=youtube)
+    assert [v["source"] for v in media.videos] == ["metacritic", "youtube"]
+
+
 def test_youtube_requires_title_prefix():
     entries = [_yt("x1", "Plague Doctor: Life in Pestilence - Official Trailer", 999, 90)]
     assert pick_youtube_trailer("Pestilence", entries) is None
