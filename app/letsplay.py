@@ -100,8 +100,9 @@ def pick_letsplay(title: str, videos: list[Video]) -> Video | None:
     return max(candidates, key=lambda v: v.view_count, default=None)
 
 
-async def _youtube_get(client: httpx.AsyncClient, path: str, params: dict) -> dict:
-    response = await client.get(f"{YOUTUBE_API}/{path}", params=params)
+async def _youtube_get(client: httpx.AsyncClient, api_key: str, path: str, params: dict) -> dict:
+    # Ключ — заголовком, не ?key=: URL попадает в логи и тексты ошибок.
+    response = await client.get(f"{YOUTUBE_API}/{path}", params=params, headers={"x-goog-api-key": api_key})
     if response.status_code == 403 and "quota" in response.text.lower():
         raise QuotaExceeded(response.text[:200])
     if response.status_code != 200:
@@ -112,14 +113,15 @@ async def _youtube_get(client: httpx.AsyncClient, path: str, params: dict) -> di
 async def search_videos(client: httpx.AsyncClient, api_key: str, query: str) -> list[Video]:
     found = await _youtube_get(
         client,
+        api_key,
         "search",
-        {"part": "snippet", "q": query, "type": "video", "order": "viewCount", "maxResults": 25, "key": api_key},
+        {"part": "snippet", "q": query, "type": "video", "order": "viewCount", "maxResults": 25},
     )
     ids = [item["id"]["videoId"] for item in found.get("items") or [] if item.get("id", {}).get("videoId")]
     if not ids:
         return []
     details = await _youtube_get(
-        client, "videos", {"part": "snippet,contentDetails,statistics", "id": ",".join(ids), "key": api_key}
+        client, api_key, "videos", {"part": "snippet,contentDetails,statistics", "id": ",".join(ids)}
     )
     return [
         Video(

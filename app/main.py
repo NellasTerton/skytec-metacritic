@@ -21,6 +21,9 @@ from app.platforms import short_platform
 from app.telegram import handle_update
 
 logging.basicConfig(level=get_settings().log_level)
+# httpx на INFO пишет полный URL каждого запроса, а в URL бывают секреты (токен бота в пути
+# api.telegram.org/bot<токен>/…), поэтому только предупреждения и ошибки.
+logging.getLogger("httpx").setLevel(logging.WARNING)
 log = logging.getLogger(__name__)
 
 app = FastAPI(title="Metacritic Games", docs_url="/api/docs", openapi_url="/api/openapi.json")

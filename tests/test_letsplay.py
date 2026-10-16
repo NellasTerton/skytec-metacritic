@@ -70,6 +70,8 @@ def youtube_transport(results: dict[str, list[dict]], *, quota: bool = False):
     searches = []
 
     def handler(request: httpx.Request) -> httpx.Response:
+        # Ключ только в заголовке: URL пишется в логи и в тексты ошибок.
+        assert "key" not in request.url.params and request.headers["x-goog-api-key"] == "key"
         if quota:
             return httpx.Response(403, json={"error": {"errors": [{"reason": "quotaExceeded"}]}})
         if request.url.path.endswith("/search"):

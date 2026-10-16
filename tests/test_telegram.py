@@ -1,4 +1,5 @@
 import json
+import logging
 
 import httpx
 from fastapi.testclient import TestClient
@@ -60,6 +61,11 @@ def test_webhook_checks_secret(monkeypatch):
 def test_webhook_not_configured(monkeypatch):
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     assert TestClient(main.app).post("/api/telegram/webhook", json={}).status_code == 503
+
+
+def test_httpx_does_not_log_urls_with_token():
+    # URL api.telegram.org/bot<токен>/… на INFO попал бы в runtime-логи Vercel.
+    assert logging.getLogger("httpx").getEffectiveLevel() >= logging.WARNING
 
 
 def test_pages_load_telegram_web_app_script():

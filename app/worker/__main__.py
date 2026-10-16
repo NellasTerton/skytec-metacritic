@@ -64,6 +64,9 @@ def main(argv: list[str] | None = None) -> int:
 
     sys.stdout.reconfigure(encoding="utf-8")
     logging.basicConfig(level=get_settings().log_level, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    # httpx на INFO пишет полный URL каждого запроса, а в URL бывают секреты (токен бота в пути
+    # api.telegram.org/bot<токен>/…), поэтому только предупреждения и ошибки.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
 
     if args.command == "run":
         from app.worker.runner import run_once
