@@ -53,7 +53,7 @@
 {% if fresh %}
 <section class="fresh-block">
   <p class="found">Свежие релизы, оценок пока нет</p>
-  <p class="lead">{{ fresh_total }} {{ fresh_total | plural('игра', 'игры', 'игр') }}: Metacritic ещё не опубликовал оценки. Проверяем каждый день.</p>
+  <p class="lead">{{ fresh_total }} {{ fresh_total | plural('игра', 'игры', 'игр') }}: Metacritic ещё не опубликовал оценки. Первые 30 дней после выхода проверяем их каждый день.</p>
   <div class="grid">
     {% for game in fresh %}{{ game_card(game, ago=true) }}{% endfor %}
   </div>
