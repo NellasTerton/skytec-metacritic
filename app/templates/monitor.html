@@ -100,9 +100,10 @@
 
 <div class="card first-run" id="first-card" hidden>
   <h3>Первый прогон сегодня</h3>
-  <p class="muted">Его игры по порядку совпадают с блоком New Releases на
+  <p class="muted">20 игр блока New Releases с
     <a href="https://www.metacritic.com/game/" target="_blank" rel="noopener">metacritic.com/game/</a>
-    на момент прогона (00:05 МСК). Раскройте список, чтобы сверить.</p>
+    на момент прогона (00:05 МСК). Сверяйте по составу и датам выхода: внутри одной даты Metacritic
+    отдаёт игры в нестабильном порядке, а за день в блок добавляются игры, которым опубликовали оценки.</p>
   <div class="runs" id="first"></div>
 </div>
 
@@ -208,7 +209,7 @@
       <div class="g">
         <span class="n">${g.position}</span>
         <a href="${esc(g.url)}" target="_blank" rel="noopener" title="${esc(g.slug)}">${esc(g.title)} ↗</a>
-        <span class="src">${esc(g.source || '')}</span>
+        <span class="src">${g.release_date ? esc(g.release_date.split('-').reverse().join('.')) + ' · ' : ''}${esc(g.source || '')}</span>
         ${g.status ? `<span title="${esc(g.error || '')}">${chip(g.status)}</span>` : '<span></span>'}
       </div>`).join('')}</div>`;
   }

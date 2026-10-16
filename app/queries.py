@@ -298,7 +298,7 @@ def _games_counts(session: Session, runs: list[Run]) -> dict[int, int]:
 
 
 def run_games(session: Session, run_id: int) -> dict | None:
-    """Игры прогона в порядке выборки (для New Releases — порядок блока на metacritic.com/game/).
+    """Игры прогона в порядке выборки (для New Releases — как их отдал блок на metacritic.com/game/).
 
     status: new — игра появилась в базе в этом прогоне, updated — уже была и обновлена,
     failed — карточку забрать не удалось. У прогонов без сбора (резюме и т. п.) status = None.
@@ -310,10 +310,8 @@ def run_games(session: Session, run_id: int) -> dict | None:
     order = (run.details or {}).get("slugs") or []
     slugs = list(dict.fromkeys([*order, *(i.game_slug for i in items)]))
     by_slug = {i.game_slug: i for i in items}
-    games = {
-        g.slug: g
-        for g in session.execute(select(Game.slug, Game.title, Game.first_seen_at).where(Game.slug.in_(slugs))).all()
-    }
+    columns = select(Game.slug, Game.title, Game.first_seen_at, Game.release_date)
+    games = {g.slug: g for g in session.execute(columns.where(Game.slug.in_(slugs))).all()}
     out = []
     for position, slug in enumerate(slugs, 1):
         item, game = by_slug.get(slug), games.get(slug)
@@ -328,6 +326,7 @@ def run_games(session: Session, run_id: int) -> dict | None:
                 "position": position,
                 "slug": slug,
                 "title": game.title if game else slug,
+                "release_date": game.release_date.isoformat() if game and game.release_date else None,
                 "url": METACRITIC_GAME_URL.format(slug=slug),
                 "source": SOURCES.get(item.source, item.source) if item else None,
                 "status": status,
