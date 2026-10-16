@@ -73,6 +73,14 @@ def test_fresh_releases_block_below_scored(fake_db):
     assert fake_db[-1]["q"] == "x" and fake_db[-1]["limit"] == queries.FRESH_STEP
 
 
+def test_default_sort_is_newest_first(fake_db):
+    html = TestClient(main.app).get("/").text
+    assert '<option value="release" selected>Сначала новые</option>' in html
+    # Сортировка по умолчанию не попадает в ссылки, выбранная — попадает.
+    assert "sort=release" not in html
+    assert "sort=metascore" in TestClient(main.app).get("/", params={"sort": "metascore"}).text
+
+
 def test_released_ago():
     today = dt.date(2026, 10, 16)
     assert queries.released_ago(today, today) == "вышла сегодня"

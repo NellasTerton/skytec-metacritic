@@ -9,12 +9,15 @@ from sqlalchemy.orm import Session, selectinload
 from app.models import Game, GamePlatform, ReviewSummary, Run, RunItem
 
 PAGE_SIZE = 24
+# Подписи — законченные фразы: в закрытом списке видно только выбранную, и по ней должно быть
+# понятно, что это порядок, а не фильтр.
 SORTS = {
-    "metascore": "Metascore",
-    "userscore": "User score",
-    "release": "Дата выхода",
-    "title": "Название",
+    "release": "Сначала новые",
+    "metascore": "Выше Metascore",
+    "userscore": "Выше оценка игроков",
+    "title": "По названию, А–Я",
 }
+DEFAULT_SORT = "release"
 SIMILAR_LIMIT = 6
 FRESH_STEP = 24  # блок «Свежие релизы, оценок пока нет»: столько игр и столько же по «Показать ещё»
 FRESH_MAX = 240
@@ -45,7 +48,7 @@ def _filtered(q: str, platform: str):
 
 
 def list_games(
-    session: Session, *, q: str = "", platform: str = "", sort: str = "metascore", page: int = 1
+    session: Session, *, q: str = "", platform: str = "", sort: str = DEFAULT_SORT, page: int = 1
 ) -> GameList:
     """Игры с оценками (Metascore или User score) — основной список главной."""
     stmt, metascore, userscore = _filtered(q, platform)
@@ -54,9 +57,9 @@ def list_games(
     order = {
         "metascore": [metascore.desc().nulls_last(), userscore.desc().nulls_last()],
         "userscore": [userscore.desc().nulls_last(), metascore.desc().nulls_last()],
-        "release": [Game.release_date.desc().nulls_last()],
+        "release": [Game.release_date.desc().nulls_last(), metascore.desc().nulls_last()],
         "title": [Game.title.asc()],
-    }.get(sort, [metascore.desc().nulls_last()])
+    }.get(sort, [Game.release_date.desc().nulls_last()])
 
     total = session.scalar(select(func.count()).select_from(stmt.subquery())) or 0
     pages = max(1, -(-total // PAGE_SIZE))

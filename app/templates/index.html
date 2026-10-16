@@ -85,7 +85,7 @@
     </label>
     <label class="field">
       <svg class="icon"><use href="#i-sort"/></svg>
-      <select name="sort" aria-label="Сортировка">
+      <select name="sort" aria-label="Сортировка" title="Сортировка">
         {% for key, label in sorts.items() %}
           <option value="{{ key }}" {{ 'selected' if key == sort }}>{{ label }}</option>
         {% endfor %}

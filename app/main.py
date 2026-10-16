@@ -86,13 +86,13 @@ def index(
     request: Request,
     q: str = "",
     platform: str = "",
-    sort: str = "metascore",
+    sort: str = queries.DEFAULT_SORT,
     page: int = 1,
     fresh: int = queries.FRESH_STEP,
     partial: int = 0,
 ) -> HTMLResponse:
     if sort not in queries.SORTS:
-        sort = "metascore"
+        sort = queries.DEFAULT_SORT
     fresh = min(max(fresh, queries.FRESH_STEP), queries.FRESH_MAX)
     today = datetime.now(ZoneInfo(get_settings().service_tz)).date()
     context = {
@@ -106,7 +106,7 @@ def index(
     }
 
     def page_url(n: int, fresh_limit: int = fresh) -> str:
-        params = {"q": q, "platform": platform, "sort": "" if sort == "metascore" else sort, "page": n}
+        params = {"q": q, "platform": platform, "sort": "" if sort == queries.DEFAULT_SORT else sort, "page": n}
         if fresh_limit != queries.FRESH_STEP:
             params["fresh"] = fresh_limit
         return "/?" + urlencode({k: v for k, v in params.items() if v and not (k == "page" and v == 1)})
