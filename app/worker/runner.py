@@ -9,7 +9,7 @@ import httpx
 
 from app.config import get_settings
 from app.db import session_scope
-from app.embeddings import embed_texts, game_text
+from app.embeddings import EmbeddingRateLimited, embed_texts, game_text
 from app.letsplay import LetsplayError, QuotaExceeded, WrongVideo, analyze, fetch_transcript, find_letsplay
 from app.llm import LLMClient, LLMError, providers_from_settings
 from app.media import collect_media
@@ -461,6 +461,13 @@ async def embeddings_backlog(limit: int, *, trigger: str = "backfill") -> int | 
             vectors = await embed_texts(http, settings.gemini_api_key, settings.embedding_model, texts)
         with session_scope(serverless=False) as session:
             store.save_embeddings(session, {slug: vector for (slug, *_), vector in zip(todo, vectors, strict=True)})
+    except EmbeddingRateLimited as e:
+        # Ожидаемо на бесплатном тарифе: не роняем workflow (иначе пропустятся следующие шаги),
+        # игры останутся без эмбеддинга и попадут в следующий ежечасный прогон.
+        message = f"лимит Gemini, повторим в следующем прогоне: {e}"
+        _update_run(run_id, status="failed", finished_at=store.now(), message=message[:2000])
+        log.warning("run #%d embeddings postponed: %s", run_id, e)
+        return run_id
     except Exception as e:
         _update_run(run_id, status="failed", finished_at=store.now(), message=f"{type(e).__name__}: {e}"[:2000])
         raise

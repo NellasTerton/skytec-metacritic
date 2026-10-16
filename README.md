@@ -57,7 +57,7 @@ New Releases по составу и датам выхода.
 - **Главная** — блок «Свежие релизы, оценок пока нет» с пометкой «вышла N дней назад», поиск при вводе, вёрстка под телефон.
 - **Telegram-бот [@skytecmetacriticbot](https://t.me/skytecmetacriticbot)** — /start с кнопкой Mini App; в Telegram сайт берёт тему клиента и системную «Назад» ([app/telegram.py](app/telegram.py)).
 - **Секреты не попадают в логи** — ключ YouTube в заголовке, URL запросов не логируются, вебхук бота с секретным токеном; проверено по логам Actions и Vercel, истории git и переписке.
-- **Тесты и CI** — 103 офлайн-теста на сохранённых ответах Metacritic плюс тесты на настоящей БД; ruff и pytest в [ci.yml](.github/workflows/ci.yml).
+- **Тесты и CI** — 105 офлайн-тестов на сохранённых ответах Metacritic плюс тесты на настоящей БД; ruff и pytest в [ci.yml](.github/workflows/ci.yml).
 - **Документация** — исследование внутреннего API Metacritic ([docs/metacritic-research.md](docs/metacritic-research.md)) и обоснование инфраструктуры ([docs/infrastructure.md](docs/infrastructure.md)).
 
 ## Архитектура
