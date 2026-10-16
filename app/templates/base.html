@@ -137,6 +137,11 @@
     };
     for (const [name, value] of Object.entries(vars)) if (value) root.style.setProperty(name, value);
     root.style.colorScheme = tg.colorScheme === 'light' ? 'light' : 'dark';
+    // Тень и «нет оценки» в тёмной палитре на белом фоне Telegram выглядят грязно.
+    if (tg.colorScheme === 'light') {
+      root.style.setProperty('--shadow', '0 6px 20px rgba(20, 32, 51, .08)');
+      root.style.setProperty('--none', '#a9b3c4');
+    }
     if (p.bg_color) {
       if (tg.setHeaderColor) tg.setHeaderColor(p.bg_color);
       if (tg.setBackgroundColor) tg.setBackgroundColor(p.bg_color);
