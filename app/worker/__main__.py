@@ -5,6 +5,7 @@ python -m app.worker summarize --limit 20      резюме для игр в Б�
 python -m app.worker media --limit 40          трейлеры и скриншоты для игр в БД без них
 python -m app.worker letsplays --limit 3       летсплеи для игр с оценками (YouTube Data API + Gemini)
 python -m app.worker recheck [--force]         раз в сутки: игры младше 30 дней без оценок — заново
+python -m app.worker embeddings --limit 300    эмбеддинги описаний для похожих игр (Gemini)
 python -m app.worker game elden-ring           карточка игры в JSON, без БД
 python -m app.worker new-releases              список New Releases, без БД
 """
@@ -54,6 +55,8 @@ def main(argv: list[str] | None = None) -> int:
     rc_p = sub.add_parser("recheck", help="daily: refetch unscored games younger than 30 days")
     rc_p.add_argument("--limit", type=int, default=5000)
     rc_p.add_argument("--force", action="store_true", help="run even if already done today")
+    emb_p = sub.add_parser("embeddings", help="description embeddings for similar games")
+    emb_p.add_argument("--limit", type=int, default=300)
     game_p = sub.add_parser("game", help="print parsed game as JSON")
     game_p.add_argument("slug")
     sub.add_parser("new-releases", help="print New Releases")
@@ -78,6 +81,10 @@ def main(argv: list[str] | None = None) -> int:
         from app.worker.runner import media_backlog
 
         asyncio.run(media_backlog(args.limit))
+    elif args.command == "embeddings":
+        from app.worker.runner import embeddings_backlog
+
+        asyncio.run(embeddings_backlog(args.limit))
     elif args.command == "recheck":
         from app.worker.runner import recheck_backlog
 

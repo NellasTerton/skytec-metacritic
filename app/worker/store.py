@@ -3,7 +3,7 @@
 import html
 from datetime import UTC, date, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.letsplay import LetsplayResult, Video
@@ -143,6 +143,21 @@ def save_media(session: Session, slug: str, media: Media) -> None:
     game.media = media.as_json()
     game.steam_appid = media.steam_appid
     game.media_updated_at = now()
+
+
+def games_without_embedding(session: Session, limit: int) -> list[tuple[str, str, list[str], list[str], str | None]]:
+    stmt = (
+        select(Game.slug, Game.title, Game.genres, Game.developers, Game.description)
+        .where(Game.embedding.is_(None))
+        .order_by(Game.metascore.desc().nulls_last(), Game.id)
+        .limit(limit)
+    )
+    return [tuple(row) for row in session.execute(stmt)]
+
+
+def save_embeddings(session: Session, vectors: dict[str, list[float]]) -> None:
+    for slug, vector in vectors.items():
+        session.execute(update(Game).where(Game.slug == slug).values(embedding=vector))
 
 
 LETSPLAY_RETRY = timedelta(days=1)

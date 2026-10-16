@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     # Летсплеи (доп. часть 1 ТЗ): поиск — YouTube Data API, вывод — Gemini.
     youtube_api_key: str | None = None
     letsplay_models: str = "gemini-flash-lite-latest,gemini-flash-latest"  # порядок = фолбэк при 503/429
+    embedding_model: str = "gemini-embedding-2"  # похожие игры
 
     # Запуск воркера с сайта: внешний cron дёргает /api/cron с CRON_SECRET, сайт вызывает
     # workflow_dispatch fine-grained токеном (только этот репозиторий, Actions: read & write).

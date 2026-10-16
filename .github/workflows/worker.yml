@@ -48,5 +48,7 @@ jobs:
       - run: python -m app.worker summarize --limit 10
       # Трейлеры (YouTube) и скриншоты (Steam) для игр без них или с устаревшими (старше 7 дней).
       - run: python -m app.worker media --limit 40
+      # Эмбеддинги описаний для похожих игр (Gemini, пакетами по 100).
+      - run: python -m app.worker embeddings --limit 300
       # Летсплеи: по 3 игры с оценками за час — укладываемся в 100 поисков YouTube Data API в сутки.
       - run: python -m app.worker letsplays --limit 3

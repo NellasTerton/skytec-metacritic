@@ -1,5 +1,6 @@
 from datetime import date, datetime
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     BigInteger,
     Boolean,
@@ -18,6 +19,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+from app.embeddings import DIMENSIONS
 
 NAMING_CONVENTION = {
     "ix": "ix_%(column_0_label)s",
@@ -65,6 +68,8 @@ class Game(Base):
     media: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
     steam_appid: Mapped[int | None] = mapped_column(Integer)
     media_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Эмбеддинг названия, жанров, разработчика и описания — для «похожих игр».
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(DIMENSIONS), deferred=True)
 
     # Оценки lead-платформы: по ним сортируем список. По платформам — в game_platforms.
     metascore: Mapped[int | None] = mapped_column(Integer)

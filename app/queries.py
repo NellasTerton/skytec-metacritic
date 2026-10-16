@@ -87,26 +87,68 @@ def get_game(session: Session, slug: str) -> Game | None:
     ).one_or_none()
 
 
-def similar_games(session: Session, game: Game, limit: int = SIMILAR_LIMIT) -> list[tuple[Game, list[str]]]:
-    """Похожие по общим жанрам и разработчику. Общий разработчик весит вдвое больше жанра."""
-    if not game.genres and not game.developers:
-        return []
-    candidates = session.scalars(
-        select(Game)
-        .where(Game.id != game.id, Game.genres.overlap(game.genres) | Game.developers.overlap(game.developers))
-        .order_by(Game.metascore.desc().nulls_last())
-        .limit(300)
-    ).all()
+EMBEDDING_CANDIDATES = 40
+OVERLAP_CANDIDATES = 100
+NEUTRAL_SIMILARITY = 0.5  # у игры ещё нет эмбеддинга — описание не помогает и не мешает
+DESCRIPTION_REASON_SIMILARITY = 0.8  # с какого сходства писать «похожее описание»
 
-    scored = []
-    for other in candidates:
-        genres = sorted(set(other.genres) & set(game.genres))
-        devs = sorted(set(other.developers) & set(game.developers))
-        score = len(genres) + 2 * len(devs)
-        reasons = [*(f"разработчик {d}" for d in devs), *genres]
-        scored.append((score, other.metascore or 0, other, reasons))
-    scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
-    return [(other, reasons) for _, _, other, reasons in scored[:limit]]
+
+def _has_score(game: Game) -> bool:
+    return game.metascore is not None or game.userscore is not None
+
+
+def rank_similar(
+    game: Game, candidates: list[tuple[Game, float | None]], limit: int = SIMILAR_LIMIT
+) -> list[tuple[Game, list[str]]]:
+    """Сходство описаний (косинус эмбеддингов) + общие жанры + общий разработчик; игры с оценками выше.
+
+    candidates — (игра, косинусное сходство или None, если эмбеддинга нет).
+    """
+    genres, devs = set(game.genres or []), set(game.developers or [])
+    ranked = []
+    for other, similarity in candidates:
+        if other.id == game.id:
+            continue
+        common_genres = sorted(genres & set(other.genres or []))
+        common_devs = sorted(devs & set(other.developers or []))
+        union = genres | set(other.genres or [])
+        jaccard = len(common_genres) / len(union) if union else 0.0
+        text_similarity = similarity if similarity is not None else NEUTRAL_SIMILARITY
+        score = text_similarity + 0.3 * jaccard + 0.15 * bool(common_devs)
+        reasons = [*(f"разработчик {d}" for d in common_devs), *common_genres]
+        if similarity is not None and similarity >= DESCRIPTION_REASON_SIMILARITY:
+            reasons.insert(0, "похожее описание")
+        ranked.append(((_has_score(other), score), other, reasons))
+    ranked.sort(key=lambda item: item[0], reverse=True)
+    return [(other, reasons) for _, other, reasons in ranked[:limit]]
+
+
+def similar_games(session: Session, game: Game, limit: int = SIMILAR_LIMIT) -> list[tuple[Game, list[str]]]:
+    """Кандидаты: ближайшие по эмбеддингу описания и игры с общими жанрами или разработчиком."""
+    embedding = session.scalar(select(Game.embedding).where(Game.id == game.id))
+    similarity = (1 - Game.embedding.cosine_distance(embedding)) if embedding is not None else None
+    columns = (Game, similarity.label("similarity")) if similarity is not None else (Game,)
+
+    found: dict[int, tuple[Game, float | None]] = {}
+    if similarity is not None:
+        nearest = session.execute(
+            select(*columns)
+            .where(Game.id != game.id, Game.embedding.is_not(None))
+            .order_by(Game.embedding.cosine_distance(embedding))
+            .limit(EMBEDDING_CANDIDATES)
+        )
+        found.update({other.id: (other, sim) for other, sim in nearest})
+    if game.genres or game.developers:
+        overlap = session.execute(
+            select(*columns)
+            .where(Game.id != game.id, Game.genres.overlap(game.genres) | Game.developers.overlap(game.developers))
+            .order_by(Game.metascore.desc().nulls_last())
+            .limit(OVERLAP_CANDIDATES)
+        )
+        for row in overlap:
+            other, sim = (row[0], row[1]) if similarity is not None else (row[0], None)
+            found.setdefault(other.id, (other, sim))
+    return rank_similar(game, list(found.values()), limit)
 
 
 AUTO_TRIGGERS = ("cron", "schedule")

@@ -9,6 +9,7 @@ import httpx
 
 from app.config import get_settings
 from app.db import session_scope
+from app.embeddings import embed_texts, game_text
 from app.letsplay import LetsplayError, QuotaExceeded, WrongVideo, analyze, fetch_transcript, find_letsplay
 from app.llm import LLMClient, LLMError, providers_from_settings
 from app.media import collect_media
@@ -373,4 +374,40 @@ async def recheck_backlog(
         details={"newly_scored": scored},
     )
     log.info("run #%d recheck: %d games, newly scored: %s", run_id, len(games), scored)
+    return run_id
+
+
+async def embeddings_backlog(limit: int, *, trigger: str = "backfill") -> int | None:
+    """Эмбеддинги для игр без них (похожие игры). Без GEMINI_API_KEY — пропуск."""
+    settings = get_settings()
+    if not settings.gemini_api_key:
+        log.info("embeddings skipped: GEMINI_API_KEY is not set")
+        return None
+    with session_scope(serverless=False) as session:
+        todo = store.games_without_embedding(session, limit)
+        if not todo:
+            log.info("embedding backlog is empty")
+            return None
+        run = Run(trigger=trigger, status="running", phase="embeddings", games_found=len(todo))
+        run.heartbeat_at = store.now()
+        session.add(run)
+        session.flush()
+        run_id = run.id
+    texts = [game_text(title, genres or [], devs or [], description) for _, title, genres, devs, description in todo]
+    try:
+        async with httpx.AsyncClient(timeout=120) as http:
+            vectors = await embed_texts(http, settings.gemini_api_key, settings.embedding_model, texts)
+        with session_scope(serverless=False) as session:
+            store.save_embeddings(session, {slug: vector for (slug, *_), vector in zip(todo, vectors, strict=True)})
+    except Exception as e:
+        _update_run(run_id, status="failed", finished_at=store.now(), message=f"{type(e).__name__}: {e}"[:2000])
+        raise
+    _update_run(
+        run_id,
+        status="success",
+        finished_at=store.now(),
+        games_processed=len(vectors),
+        message=f"эмбеддинги: {len(vectors)}",
+    )
+    log.info("run #%d embeddings: %d games", run_id, len(vectors))
     return run_id
